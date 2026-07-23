@@ -32,7 +32,7 @@ function resolvePublicPath(requestUrl) {
 }
 
 const server = createServer(async (request, response) => {
-  const filePath = resolvePublicPath(request.url || "/");
+  let filePath = resolvePublicPath(request.url || "/");
 
   if (!filePath) {
     response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
@@ -41,7 +41,11 @@ const server = createServer(async (request, response) => {
   }
 
   try {
-    const fileStat = await stat(filePath);
+    let fileStat = await stat(filePath);
+    if (fileStat.isDirectory()) {
+      filePath = path.join(filePath, "index.html");
+      fileStat = await stat(filePath);
+    }
     if (!fileStat.isFile()) {
       throw new Error("Not a file");
     }

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   auditHtml,
+  auditSessionPageIdentity,
   classifyRepositoryPath,
   expectedOpenFromEnvironment,
   findForbiddenPhrases,
@@ -41,6 +42,7 @@ function fixtureCatalog() {
           date: `2026-${String(7 + cohortIndex).padStart(2, "0")}-${String(10 + sessionIndex).padStart(2, "0")}`,
           startTime: "10:00",
           endTime: "12:00",
+          contentPath: `sessions/session-${String(sequence).padStart(2, "0")}/`,
         };
       }),
     })),
@@ -93,6 +95,10 @@ test("catalog contract is exactly three cohorts and six sessions", () => {
   const invalid = fixtureCatalog();
   invalid.cohorts.pop();
   assert.match(validateCatalog(invalid).errors.join("\n"), /3 梯|6 場/);
+
+  const unsafePath = fixtureCatalog();
+  unsafePath.cohorts[0].sessions[0].contentPath = "../internal/";
+  assert.match(validateCatalog(unsafePath).errors.join("\n"), /contentPath/);
 });
 
 test("availability verifies a complete expected-open snapshot", () => {
@@ -136,4 +142,15 @@ test("basic HTML accessibility checks ids, skip link, and images", () => {
   </body></html>`;
   assert.deepEqual(auditHtml(html).errors, []);
   assert.deepEqual(auditHtml(html).references, ["hero.webp"]);
+});
+
+test("session content page declares the route-matching session id", () => {
+  const valid = `<!doctype html><html lang="zh-Hant"><body>
+    <main id="main-content" data-session-id="session-01"><h1>第一場</h1></main>
+  </body></html>`;
+  assert.deepEqual(auditSessionPageIdentity(valid, "session-01"), []);
+  assert.match(
+    auditSessionPageIdentity(valid, "session-02").join("\n"),
+    /data-session-id="session-02"/,
+  );
 });

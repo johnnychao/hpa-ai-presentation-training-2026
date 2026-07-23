@@ -7,6 +7,8 @@
 - `docs/`：GitHub Pages 唯一發布目錄。
 - `docs/data/course-catalog.json`：三梯六場的公開課程資料。
 - `docs/data/availability.json`：六場的公開開放狀態；預設為 fail-closed。
+- `docs/sessions/session-01/` 至 `session-06/`：六場可由首頁入口到達的公開內容頁。
+- `docs/assets/images/hpa-logo.png` 與 `hpa-favicon.ico`：國民健康署官方 Logo 與網站圖示；來源為國健署官方網站。
 - `.github/workflows/deploy-pages.yml`：`main` 有 push 或人工執行時，先驗證再發布。
 - `.github/workflows/manage-availability.yml`：GitHub 登入後以六個 checkbox 完整覆寫開放狀態，留下 commit 紀錄並在同次 workflow 發布。
 - `scripts/`：只使用 Node.js 內建模組的資料、公開安全與可及性檢查。
@@ -45,6 +47,7 @@ node scripts/validate-site.mjs --expect-open=
 驗證器會檢查：
 
 - 恰好三梯、每梯兩場、共六場，以及 120 分鐘流程。
+- 六場均有安全、固定且可到達的 `sessions/<session-id>/` 內容頁，頁面 ID 與場次一致。
 - `availability.json` 六個 session 均有明確 boolean，且 `defaultOpen` 固定為 `false`。
 - 可用參數核對完整開放清單。
 - 已取消的兩項簡報修改主題不在 `docs/`。
@@ -52,3 +55,5 @@ node scripts/validate-site.mjs --expect-open=
 - HTML 基本語意與可及性、片段連結、CSS/JS/圖片/JSON 本機路徑。
 
 場次操作請看 [ADMIN_GUIDE.md](ADMIN_GUIDE.md)，公開資料界線請看 [PUBLIC_CONTENT_POLICY.md](PUBLIC_CONTENT_POLICY.md)。
+
+品牌視覺以[國民健康署官方網站](https://www.hpa.gov.tw/home/index.aspx)及其官方 Logo 為準；本站明示為課程專用入口，不取代國民健康署官網。

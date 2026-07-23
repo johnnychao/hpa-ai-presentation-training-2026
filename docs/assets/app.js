@@ -316,8 +316,10 @@
     }).format(date);
   }
 
-  function sessionHref(session, cohort) {
-    return cohort ? `#${cohort.id}` : "";
+  function sessionHref(session) {
+    const contentPath = textValue(session && session.contentPath);
+    const expectedPath = session && session.id ? `sessions/${session.id}/` : "";
+    return contentPath === expectedPath ? contentPath : "";
   }
 
   function isSessionOpen(availabilityMap, sessionId) {
@@ -366,10 +368,11 @@
       const cohortLabel = cohort
         ? textValue(cohort.label, "課程")
         : textValue(session.cohortLabel, "課程");
+      const sessionLabel = textValue(session.label, `第 ${sessionNumber} 場`);
       topline.append(
         createElement("p", {
           className: "session-index",
-          text: `${cohortLabel} · ${textValue(session.label, `第 ${sessionNumber} 場`)}`,
+          text: `${cohortLabel} · ${sessionLabel}`,
         }),
         createElement("span", {
           className: "session-state",
@@ -422,13 +425,13 @@
       main.append(courseDetail, createFlowDetails(sessionFlow, "session-flow"));
 
       let action;
-      const target = sessionHref(session, cohort);
+      const target = sessionHref(session);
       if (isOpen && target) {
         action = createElement("a", {
           className: "session-action",
           attributes: {
             href: target,
-            "aria-label": `進入${heading.textContent}`,
+            "aria-label": `進入${cohortLabel}${sessionLabel}：${heading.textContent}`,
           },
         });
         action.append(

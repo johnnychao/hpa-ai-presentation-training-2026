@@ -64,7 +64,8 @@
           "label": "第1場次",
           "date": "2026-07-24",
           "startTime": "10:00",
-          "endTime": "12:00"
+          "endTime": "12:00",
+          "contentPath": "sessions/session-01/"
         },
         {
           "id": "session-02",
@@ -72,7 +73,8 @@
           "label": "第2場次",
           "date": "2026-08-07",
           "startTime": "10:00",
-          "endTime": "12:00"
+          "endTime": "12:00",
+          "contentPath": "sessions/session-02/"
         }
       ]
     },
@@ -92,7 +94,8 @@
           "label": "第3場次",
           "date": "2026-08-21",
           "startTime": "10:00",
-          "endTime": "12:00"
+          "endTime": "12:00",
+          "contentPath": "sessions/session-03/"
         },
         {
           "id": "session-04",
@@ -100,7 +103,8 @@
           "label": "第4場次",
           "date": "2026-09-04",
           "startTime": "10:00",
-          "endTime": "12:00"
+          "endTime": "12:00",
+          "contentPath": "sessions/session-04/"
         }
       ]
     },
@@ -120,7 +124,8 @@
           "label": "第5場次",
           "date": "2026-09-18",
           "startTime": "10:00",
-          "endTime": "12:00"
+          "endTime": "12:00",
+          "contentPath": "sessions/session-05/"
         },
         {
           "id": "session-06",
@@ -128,7 +133,8 @@
           "label": "第6場次",
           "date": "2026-10-02",
           "startTime": "10:00",
-          "endTime": "12:00"
+          "endTime": "12:00",
+          "contentPath": "sessions/session-06/"
         }
       ]
     }

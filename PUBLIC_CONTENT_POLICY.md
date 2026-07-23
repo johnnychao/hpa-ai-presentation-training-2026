@@ -8,6 +8,7 @@
 - 課程流程與一般使用說明。
 - 每場「已開放／尚未開放」狀態。
 - 專為本網站生成、沒有真人識別資訊的微縮卡通情境圖。
+- 由國民健康署官方網站取得、用於本課程識別的官方 Logo。
 - 網站 HTML、CSS、JavaScript、公開 JSON 與維運文件。
 
 ## 不得公開
@@ -29,6 +30,15 @@
 - `defaultOpen: false`：資料讀取失敗時全部關閉。
 
 這不是登入、授權或存取控制。若教材必須只給特定學員，應使用機關核准的 Google Workspace、Microsoft 365、LMS 或其他具身分驗證的系統。
+
+六個場次內容頁都會隨 GitHub Pages 公開部署；未開放時只是不在首頁提供入口，知道網址者仍可能直接瀏覽。
+
+## 品牌來源
+
+- 官方網站：<https://www.hpa.gov.tw/home/index.aspx>
+- 官方 Logo：<https://www.hpa.gov.tw/NewPageStyle/TW/images/logo/logo.png>
+- 官方網站圖示：<https://www.hpa.gov.tw/NewPageStyle/TW/images/favicon.ico>
+- 本站使用官方 Logo 與官方網站的綠、青綠、灰色系，並標示「課程專用入口」，不冒充或取代國民健康署官網。
 
 ## 上線前檢查
 
