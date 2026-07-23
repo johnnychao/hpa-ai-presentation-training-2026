@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="國民健康署 AI 簡報教育訓練課程入口。學員免登入即可查看三梯六場課程資訊與開放狀態。"
+    >
+    <meta name="theme-color" content="#173f37">
+    <title>國民健康署｜AI 簡報教育訓練</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23173f37'/%3E%3Cpath fill='%23d6ad61' d='M6 18h4v8H6zm8-6h4v14h-4zm8-6h4v20h-4z'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="assets/styles.css">
+    <script src="assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳至主要內容</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="#top" aria-label="回到課程入口首頁">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span class="brand-copy">
+            <strong>AI 簡報教育訓練</strong>
+            <small>國民健康署課程入口</small>
+          </span>
+        </a>
+        <nav class="site-nav" aria-label="主要導覽">
+          <a href="#course-path">課程路徑</a>
+          <a href="#schedule">場次入口</a>
+          <a href="#access-notes">使用說明</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="shell hero-layout">
+          <div class="hero-copy">
+            <p class="eyebrow"><span aria-hidden="true">03</span> 梯次進階 · <span aria-hidden="true">06</span> 場實作</p>
+            <h1 id="hero-title" data-series-title>從資料來源，走到能支援決策的簡報</h1>
+            <p class="hero-lead" data-series-description>
+              以來源為準、以溝通為核心，逐步完成可信初稿、可提報版本與決策簡報。
+            </p>
+            <p class="flow-line" id="flow-summary" aria-live="polite">
+              可信初稿 <span aria-hidden="true">→</span> 品質精修 <span aria-hidden="true">→</span> 決策應用
+            </p>
+            <div class="hero-facts" aria-label="課程使用方式">
+              <span>免 GitHub 帳號</span>
+              <span>免登入瀏覽</span>
+              <span>不蒐集個資</span>
+            </div>
+            <a class="primary-link" href="#schedule">
+              查看開放場次
+              <span aria-hidden="true">↓</span>
+            </a>
+          </div>
+
+          <figure class="hero-visual">
+            <div class="hero-image-frame">
+              <img
+                src="assets/images/hero-workshop.webp"
+                alt="微縮卡通風格的公部門簡報工作坊，學員共同檢視螢幕上的資料與投影片"
+                width="960"
+                height="800"
+              >
+            </div>
+            <figcaption>
+              <span>實作導向</span>
+              每一梯次，讓簡報更接近真實提報情境
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="trust-strip" aria-label="重要使用提醒">
+        <div class="shell trust-strip-inner">
+          <p>
+            <strong>不需登入即可使用。</strong>
+            報名與名單由承辦單位辦理，本網站不提供報名、名單查詢或資格驗證。
+          </p>
+          <a href="#access-notes">了解公開頁面的使用界線</a>
+        </div>
+      </section>
+
+      <section class="section course-section" id="course-path" aria-labelledby="path-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Course path</p>
+              <h2 id="path-title">三梯，逐步把資訊變成行動</h2>
+            </div>
+            <p>每梯聚焦一個明確成果；場次內容完全依簽核版課程規劃呈現。</p>
+          </div>
+
+          <div class="load-message" id="catalog-status" role="status" aria-live="polite">
+            正在載入課程資料…
+          </div>
+          <div class="stage-grid is-loading" id="stage-list" aria-busy="true">
+            <article class="loading-card" aria-hidden="true"><span></span><span></span><span></span></article>
+            <article class="loading-card" aria-hidden="true"><span></span><span></span><span></span></article>
+            <article class="loading-card" aria-hidden="true"><span></span><span></span><span></span></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section schedule-section" id="schedule" aria-labelledby="schedule-title">
+        <div class="shell">
+          <div class="section-heading schedule-heading">
+            <div>
+              <p class="section-kicker">Classroom access</p>
+              <h2 id="schedule-title">選擇你的課程場次</h2>
+            </div>
+            <div class="schedule-summary" id="schedule-summary" aria-live="polite">
+              正在確認開放狀態
+            </div>
+          </div>
+
+          <p class="schedule-intro">
+            學員只要開啟本頁即可查看。已開放場次會顯示進入按鈕；其他場次將在適當時間開放。
+          </p>
+          <div class="load-message" id="session-status" role="status" aria-live="polite">
+            正在載入場次資訊…
+          </div>
+          <div class="session-grid is-loading" id="session-list" aria-busy="true">
+            <article class="loading-card session-loading" aria-hidden="true"><span></span><span></span></article>
+            <article class="loading-card session-loading" aria-hidden="true"><span></span><span></span></article>
+          </div>
+          <p class="update-note" id="availability-updated"></p>
+        </div>
+      </section>
+
+      <section class="section access-section" id="access-notes" aria-labelledby="access-title">
+        <div class="shell access-layout">
+          <div class="access-heading">
+            <p class="section-kicker">Before you begin</p>
+            <h2 id="access-title">安心使用，不留下個人資料</h2>
+            <p>
+              這是一個公開、無登入的課程入口。網站只呈現課程資訊與場次開放狀態。
+            </p>
+          </div>
+          <div class="notice-grid">
+            <article class="notice-card">
+              <span class="notice-index" aria-hidden="true">01</span>
+              <h3>報名由承辦單位處理</h3>
+              <p>本網站不受理報名、不顯示名單，也不查詢或判定任何人的參訓資格。</p>
+            </article>
+            <article class="notice-card">
+              <span class="notice-index" aria-hidden="true">02</span>
+              <h3>不蒐集個人資料</h3>
+              <p>不要求姓名、電子郵件、GitHub 帳號或其他身分資料，也不提供個人化頁面。</p>
+            </article>
+            <article class="notice-card notice-card-emphasis">
+              <span class="notice-index" aria-hidden="true">03</span>
+              <h3>「尚未開放」不是權限控管</h3>
+              <p>
+                本站為公開網頁；場次關閉只控制入口按鈕的顯示狀態，不代表教材具備安全存取限制。
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <noscript>
+        <section class="noscript-message" aria-labelledby="noscript-title">
+          <div class="shell">
+            <h2 id="noscript-title">需要啟用 JavaScript 才能查看場次狀態</h2>
+            <p>本頁仍可閱讀基本課程與個資說明；請啟用 JavaScript 後重新整理，以載入最新開放場次。</p>
+          </div>
+        </section>
+      </noscript>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <p><strong>國民健康署 AI 簡報教育訓練</strong><br>公開課程入口 · 無登入 · 不蒐集個資</p>
+        <a href="#top">回到頁首 <span aria-hidden="true">↑</span></a>
+      </div>
+    </footer>
+  </body>
+</html>
