@@ -205,6 +205,7 @@ export function validateCatalog(catalog) {
   const seenSessionIds = new Set();
   sessions.forEach((session, index) => {
     const expectedId = SESSION_IDS[index];
+    const expectedContentPath = `sessions/${expectedId}/`;
     if (session?.id !== expectedId) {
       errors.push(`第 ${index + 1} 場 id 必須是 ${expectedId}`);
     }
@@ -222,6 +223,9 @@ export function validateCatalog(catalog) {
     if (!isValidTime(session?.startTime) || !isValidTime(session?.endTime)) {
       errors.push(`${expectedId} 的 startTime/endTime 必須是有效 HH:MM`);
     }
+    if (session?.contentPath !== expectedContentPath) {
+      errors.push(`${expectedId} 的 contentPath 必須是 ${expectedContentPath}`);
+    }
   });
 
   const actualSessionIds = [...seenSessionIds].sort();
@@ -232,7 +236,15 @@ export function validateCatalog(catalog) {
     errors.push(`場次 id 必須完整對應 ${SESSION_IDS.join(", ")}`);
   }
 
-  return { errors, sessionIds: actualSessionIds, cohortCount: cohorts.length };
+  return {
+    errors,
+    sessionIds: actualSessionIds,
+    cohortCount: cohorts.length,
+    sessionPages: sessions.map((session) => ({
+      id: session?.id,
+      contentPath: session?.contentPath,
+    })),
+  };
 }
 
 export function validateAvailability(
@@ -404,6 +416,21 @@ export function auditHtml(html, fileLabel = "index.html") {
   return { errors, references };
 }
 
+export function auditSessionPageIdentity(html, sessionId, fileLabel = "session page") {
+  const errors = [];
+  const mainTag = html.match(/<main\b[^>]*>/i)?.[0] || "";
+  const expectedAttribute = new RegExp(
+    `\\bdata-session-id\\s*=\\s*(["'])${escapeRegularExpression(sessionId)}\\1`,
+    "i",
+  );
+
+  if (!mainTag || !expectedAttribute.test(mainTag)) {
+    errors.push(`${fileLabel} 的 main 必須宣告 data-session-id="${sessionId}"`);
+  }
+
+  return errors;
+}
+
 export function collectCssReferences(css) {
   const references = [];
   const pattern = /url\(\s*(?:(["'])(.*?)\1|([^)"']+))\s*\)/gi;
@@ -501,6 +528,27 @@ export async function validateSite(rootDirectory, options = {}) {
   }
 
   const docsFiles = repositoryFiles.filter((file) => file.startsWith("docs/"));
+
+  for (const sessionPage of catalogResult.sessionPages) {
+    const expectedContentPath = `sessions/${sessionPage.id}/`;
+    if (
+      !SESSION_IDS.includes(sessionPage.id) ||
+      sessionPage.contentPath !== expectedContentPath
+    ) {
+      continue;
+    }
+    const expectedRelativePath = `docs/${sessionPage.contentPath}index.html`;
+    const pagePath = path.join(rootDirectory, ...expectedRelativePath.split("/"));
+    if (!(await fileExists(pagePath))) {
+      errors.push(`${sessionPage.id} 找不到對應內容頁 ${expectedRelativePath}`);
+      continue;
+    }
+    const sessionHtml = await fs.readFile(pagePath, "utf8");
+    errors.push(
+      ...auditSessionPageIdentity(sessionHtml, sessionPage.id, expectedRelativePath),
+    );
+  }
+
   for (const relativePath of docsFiles) {
     if (!TEXT_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) {
       continue;
@@ -571,6 +619,7 @@ export async function validateSite(rootDirectory, options = {}) {
   return {
     cohortCount: catalogResult.cohortCount,
     sessionCount: catalogResult.sessionIds.length,
+    contentPageCount: catalogResult.sessionPages.length,
     openIds: [...availabilityResult.openIds].sort(),
     repositoryFileCount: repositoryFiles.length,
     checkedReferences,
@@ -637,4 +686,8 @@ async function fileExists(filePath) {
   } catch {
     return false;
   }
+}
+
+function escapeRegularExpression(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

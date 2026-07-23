@@ -7,9 +7,9 @@
       name="description"
       content="國民健康署 AI 簡報教育訓練課程入口。學員免登入即可查看三梯六場課程資訊與開放狀態。"
     >
-    <meta name="theme-color" content="#173f37">
+    <meta name="theme-color" content="#008579">
     <title>國民健康署｜AI 簡報教育訓練</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23173f37'/%3E%3Cpath fill='%23d6ad61' d='M6 18h4v8H6zm8-6h4v14h-4zm8-6h4v20h-4z'/%3E%3C/svg%3E">
+    <link rel="icon" href="assets/images/hpa-favicon.ico">
     <link rel="stylesheet" href="assets/styles.css">
     <script src="assets/app.js" defer></script>
   </head>
@@ -18,13 +18,18 @@
 
     <header class="site-header">
       <div class="shell header-inner">
-        <a class="brand" href="#top" aria-label="回到課程入口首頁">
-          <span class="brand-mark" aria-hidden="true">
-            <span></span><span></span><span></span>
-          </span>
+        <a class="brand" href="#top" aria-label="國民健康署 AI 簡報教育訓練課程專用入口，回到首頁">
+          <img
+            class="brand-logo"
+            src="assets/images/hpa-logo.png"
+            alt="衛生福利部國民健康署"
+            width="575"
+            height="162"
+          >
           <span class="brand-copy">
             <strong>AI 簡報教育訓練</strong>
-            <small>國民健康署課程入口</small>
+            <span class="brand-separator" aria-hidden="true">｜</span>
+            <small>課程專用入口</small>
           </span>
         </a>
         <nav class="site-nav" aria-label="主要導覽">
@@ -176,7 +181,10 @@
     <footer class="site-footer">
       <div class="shell footer-inner">
         <p><strong>國民健康署 AI 簡報教育訓練</strong><br>公開課程入口 · 無登入 · 不蒐集個資</p>
-        <a href="#top">回到頁首 <span aria-hidden="true">↑</span></a>
+        <div class="footer-links">
+          <a href="https://www.hpa.gov.tw/home/index.aspx" target="_blank" rel="noopener">國民健康署官方網站 <span aria-hidden="true">↗</span></a>
+          <a href="#top">回到頁首 <span aria-hidden="true">↑</span></a>
+        </div>
       </div>
     </footer>
   </body>
