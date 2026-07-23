@@ -11,6 +11,8 @@ import {
   parseExpectedOpenSpec,
   validateAvailability,
   validateCatalog,
+  validateCourseContent,
+  validateInstructorPrompts,
 } from "./site-lib.mjs";
 
 function fixtureCatalog() {
@@ -115,6 +117,93 @@ test("availability verifies a complete expected-open snapshot", () => {
     new Set(["session-02"]),
   );
   assert.match(mismatch.errors.join("\n"), /完整清單不符/);
+});
+
+test("complete course data requires the contracted timeline, prompts, and blueprint", () => {
+  const spec = {
+    id: "ai-deck-01",
+    stage: 1,
+    promptCount: 5,
+    blueprintCount: 28,
+    requiredOutputTerms: ["8–10", "來源", "3"],
+  };
+  const valid = {
+    id: "ai-deck-01",
+    meta: {
+      stage: 1,
+      title: "從資料來源到可信初稿",
+      subtitle: "AI 簡報力啟動專題",
+      level: "入門",
+      durationMinutes: 120,
+      tagline: "以來源建立可信初稿",
+      completionStandard: "完成有結構、有來源、有初稿的簡報",
+    },
+    audience: ["學員"],
+    prerequisites: ["5–8 份來源"],
+    outputs: ["8–10 頁初稿", "來源清單", "3 個待查證問題"],
+    objectives: ["目標一", "目標二", "目標三"],
+    timeline: [
+      { startMinute: 0, endMinute: 60 },
+      { startMinute: 60, endMinute: 70 },
+      { startMinute: 70, endMinute: 90 },
+      { startMinute: 90, endMinute: 110 },
+      { startMinute: 110, endMinute: 120 },
+    ],
+    workflow: [{}, {}, {}, {}],
+    prompts: Array.from({ length: 5 }, (_, index) => ({
+      title: `提示詞 ${index + 1}`,
+      text: "請只根據目前來源完成指定任務，沒有依據時標示來源不足，不要自行補寫任何政策、數字、工具功能或機關立場。",
+    })),
+    practice: { durationMinutes: 20 },
+    caseStudy: { notice: "教學虛構，不代表正式政策立場" },
+    blueprint: Array.from({ length: 28 }, (_, index) => ({
+      page: index + 1,
+      title: `第 ${index + 1} 頁`,
+    })),
+    checklist: ["一", "二", "三", "四", "五"],
+    commonReturnConditions: ["一", "二", "三", "四", "五"],
+    assessment: Array.from({ length: 5 }, (_, index) => ({
+      name: `構面 ${index + 1}`,
+      maxPoints: 20,
+      ...(index === 0 ? { completionScore: 80 } : {}),
+    })),
+    homework: ["完成初稿"],
+    instructor: {},
+    safety: ["一", "二", "三", "四"],
+  };
+  assert.deepEqual(validateCourseContent(valid, spec).errors, []);
+
+  valid.timeline[0].endMinute = 59;
+  valid.blueprint.pop();
+  const errors = validateCourseContent(valid, spec).errors.join("\n");
+  assert.match(errors, /120 分鐘/);
+  assert.match(errors, /28 筆/);
+});
+
+test("instructor prompt library includes five common and two per course", () => {
+  const prompt = (id) => ({
+    id,
+    title: `提示詞 ${id}`,
+    text: "請只根據已確認的課程來源完成逐頁內容與人工複核，缺少來源時標示待補，不得自行新增政策事實或機關立場。",
+  });
+  const library = {
+    common: Array.from({ length: 5 }, (_, index) => prompt(`common-${index + 1}`)),
+    courses: Object.fromEntries(
+      ["ai-deck-01", "ai-deck-02", "ai-deck-03"].map((id) => [
+        id,
+        [prompt(`${id}-plan`), prompt(`${id}-notes`)],
+      ]),
+    ),
+  };
+  const valid = validateInstructorPrompts(library);
+  assert.deepEqual(valid.errors, []);
+  assert.equal(valid.promptCount, 11);
+
+  library.courses["ai-deck-03"].pop();
+  assert.match(
+    validateInstructorPrompts(library).errors.join("\n"),
+    /ai-deck-03.*2 筆/,
+  );
 });
 
 test("cancelled presentation topics are detected despite spacing", () => {

@@ -64,6 +64,8 @@ async function main() {
   const options = parseArguments(process.argv.slice(2));
   const report = await validateSite(rootDirectory, options);
   console.log(`✓ 課程結構：${report.cohortCount} 梯、${report.sessionCount} 場`);
+  console.log(`✓ 完整教學內容：${report.courseContentCount} 階`);
+  console.log(`✓ 講師簡報生成提示詞：${report.instructorPromptCount} 組`);
   console.log(`✓ 場次內容頁：${report.contentPageCount} 頁`);
   console.log(`✓ 完整開放清單：${report.openIds.join(", ") || "無（全部關閉）"}`);
   console.log(`✓ 公開檔案安全掃描：${report.repositoryFileCount} 個檔案`);
