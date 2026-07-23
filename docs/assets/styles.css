@@ -1773,12 +1773,6 @@ html:not(.js) .load-message {
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
-.instructor-toggle[aria-pressed="true"] {
-  border-color: var(--cis-warm);
-  background: var(--cis-warm);
-  color: var(--white);
-}
-
 .full-course-layout {
   display: grid;
   grid-template-columns: 238px minmax(0, 1fr);
@@ -1983,8 +1977,7 @@ html:not(.js) .load-message {
 .course-summary-card,
 .structured-card,
 .practice-card,
-.assessment-card,
-.instructor-card {
+.assessment-card {
   padding: 23px 24px;
   border: 1px solid var(--line);
   background: var(--paper);
@@ -1993,8 +1986,7 @@ html:not(.js) .load-message {
 .course-summary-card h3,
 .structured-card h3,
 .practice-card h3,
-.assessment-card h3,
-.instructor-card h3 {
+.assessment-card h3 {
   margin: 0;
   color: var(--forest-deep);
   font-size: 0.98rem;
@@ -2250,8 +2242,7 @@ html:not(.js) .load-message {
   background: var(--teal-soft);
 }
 
-.practice-grid,
-.instructor-grid {
+.practice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
@@ -2262,8 +2253,7 @@ html:not(.js) .load-message {
 }
 
 .practice-card > p,
-.structured-card > p,
-.instructor-card > p {
+.structured-card > p {
   margin: 8px 0 0;
   color: var(--ink-soft);
   font-size: 0.83rem;
@@ -2288,6 +2278,46 @@ html:not(.js) .load-message {
   margin: 0;
   color: var(--forest-deep);
   font-size: 0.95rem;
+}
+
+.case-pack-card {
+  display: grid;
+  gap: 14px;
+  padding: clamp(24px, 4vw, 38px);
+  border: 2px solid var(--teal);
+  border-left: 8px solid var(--cis-lime);
+  background: linear-gradient(135deg, var(--teal-soft), var(--paper));
+}
+
+.case-pack-card h3,
+.case-pack-card p {
+  margin: 0;
+}
+
+.case-pack-card h3 {
+  color: var(--forest-deep);
+  font-family: var(--font-display);
+  font-size: clamp(1.35rem, 3vw, 2rem);
+}
+
+.case-pack-notice {
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--ink-soft);
+  font-weight: 800;
+}
+
+.case-pack-files {
+  color: var(--ink-soft);
+}
+
+.case-pack-files .course-bullet-list {
+  margin-top: 8px;
+}
+
+.case-pack-card .primary-link {
+  width: fit-content;
 }
 
 .case-study-card {
@@ -2416,11 +2446,6 @@ html:not(.js) .load-message {
   overflow-wrap: anywhere;
 }
 
-.instructor-cue {
-  padding-top: 10px;
-  border-top: 1px dashed var(--line-strong);
-}
-
 .course-safety-note {
   padding: 19px 21px;
   border-left: 6px solid var(--cis-warm);
@@ -2546,57 +2571,6 @@ html:not(.js) .load-message {
   font-size: 0.88rem;
 }
 
-.instructor-section {
-  padding: 30px;
-  border: 2px solid var(--cis-warm);
-  background: #fff8f3;
-}
-
-.instructor-card {
-  border-color: #e5b79b;
-}
-
-.instructor-prompt-library {
-  margin-top: 28px;
-  padding-top: 26px;
-  border-top: 1px solid #e5b79b;
-}
-
-.instructor-prompt-library-heading {
-  max-width: 760px;
-  margin-bottom: 18px;
-}
-
-.instructor-prompt-library-heading h3 {
-  margin: 5px 0 8px;
-  color: var(--forest-deep);
-  font-family: var(--font-display);
-  font-size: clamp(1.35rem, 3vw, 2rem);
-  line-height: 1.18;
-}
-
-.instructor-prompt-library-heading > p:last-child {
-  margin: 0;
-  color: var(--ink-soft);
-}
-
-.instructor-prompt-card {
-  border-color: #e5b79b;
-  background: var(--white);
-}
-
-.instructor-prompt-library-error {
-  margin: 0;
-  padding: 17px 19px;
-  border-left: 5px solid var(--cis-warm);
-  background: var(--white);
-  color: var(--ink-soft);
-}
-
-.course-content-page:not(.is-instructor-mode) [data-instructor-only] {
-  display: none !important;
-}
-
 @keyframes course-loading-spin {
   to {
     transform: rotate(1turn);
@@ -2707,7 +2681,6 @@ html:not(.js) .load-message {
   .workflow-grid,
   .practice-grid,
   .practice-support-grid,
-  .instructor-grid,
   .assessment-grid {
     grid-template-columns: 1fr;
   }
@@ -2724,8 +2697,7 @@ html:not(.js) .load-message {
   .course-summary-card,
   .structured-card,
   .practice-card,
-  .assessment-card,
-  .instructor-card {
+  .assessment-card {
     padding: 20px;
   }
 
@@ -2778,9 +2750,6 @@ html:not(.js) .load-message {
     grid-column: 1 / -1;
   }
 
-  .instructor-section {
-    padding: 21px 16px;
-  }
 }
 
 @media print {

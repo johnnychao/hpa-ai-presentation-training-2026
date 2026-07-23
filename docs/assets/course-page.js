@@ -10,18 +10,15 @@
   const FIELD_LABELS = {
     action: "操作",
     actions: "操作",
-    answer: "參考答案",
     audience: "適用對象",
     boundary: "適用邊界",
     check: "完成檢查",
     completionScore: "完成分數",
     content: "內容",
     context: "情境",
-    correctedTitle: "修正後標題",
     coreMessage: "核心訊息",
     courseTotalPoints: "課程總分",
     criteria: "評量標準",
-    decisionSentence: "決策句",
     deliverable: "交付成果",
     deliverables: "交付成果",
     demo: "示範流程",
@@ -36,7 +33,6 @@
     evidence: "證據",
     evaluability: "可評估性",
     expectedOutput: "預期產出",
-    feedbackPhrases: "講評語句",
     fictionalEvidence: "虛構證據",
     fictionalOptions: "虛構選項",
     fileName: "檔名",
@@ -45,7 +41,6 @@
     goal: "目標",
     groupSize: "建議分組",
     humanCheck: "人工檢查",
-    intentionalErrors: "刻意錯誤",
     instruction: "操作說明",
     instructions: "操作說明",
     label: "標示",
@@ -75,8 +70,6 @@
     question: "題目",
     rationale: "理由",
     reason: "理由",
-    recommendation: "建議",
-    referenceMiniOutline: "參考迷你大綱",
     resourceNeed: "資源需求",
     returnConditions: "退回條件",
     returnIf: "退回條件",
@@ -94,8 +87,6 @@
     sourceCards: "來源卡",
     sourceChoice: "來源選擇",
     sourceId: "來源代碼",
-    speakerCue: "講者提示",
-    speakerNote: "講者提示",
     startMinute: "開始時間",
     startSpeed: "啟動速度",
     statement: "敘述",
@@ -117,13 +108,6 @@
     course: null,
     courseId: main.dataset.courseId,
     sessionId: main.dataset.sessionId,
-    instructorMode: false,
-    instructorPromptLibrary: {
-      title: "NotebookLM 講師簡報生成提示詞",
-      usageNote: "",
-      items: [],
-      error: "",
-    },
     printDetails: [],
   };
 
@@ -760,6 +744,59 @@
     return section;
   }
 
+  function renderCasePack(course) {
+    const casePack = isObject(course.casePack) ? course.casePack : {};
+    const section = createSection(
+      "course-case-pack",
+      "Student case pack",
+      "學生操作資料包",
+      "依照本階段進度使用公開資料、範本與練習檔；答案與講師教材不會放在公開網站。",
+    );
+    const card = createElement("article", { className: "case-pack-card" });
+    card.append(
+      createElement("span", {
+        className: "fiction-badge",
+        text: "教學虛構",
+      }),
+      createElement("h3", {
+        text: firstText(casePack.title, "癌症篩檢服務改善案例"),
+      }),
+      createElement("p", {
+        className: "case-pack-notice",
+        text: firstText(
+          casePack.notice,
+          "全數為教學用聚合虛構資料，非國民健康署統計、非真實個案，不得對外引用。",
+        ),
+      }),
+    );
+    const summary = firstText(casePack.summary, casePack.description);
+    if (summary) {
+      card.append(createElement("p", { text: summary }));
+    }
+    const suggestedFiles = arrayFrom(casePack.suggestedFiles, [
+      "files",
+      "items",
+    ]);
+    if (suggestedFiles.length) {
+      const fileBlock = createElement("div", { className: "case-pack-files" });
+      fileBlock.append(createElement("strong", { text: "本階段建議使用" }));
+      appendTextList(fileBlock, suggestedFiles);
+      card.append(fileBlock);
+    }
+    const entryPath = firstText(casePack.entryPath);
+    if (entryPath) {
+      card.append(
+        createElement("a", {
+          className: "primary-link",
+          text: "開啟學生操作資料包",
+          attributes: { href: entryPath },
+        }),
+      );
+    }
+    section.append(card);
+    return section;
+  }
+
   function renderCaseStudy(course) {
     const caseStudy = course.caseStudy;
     const section = createSection(
@@ -863,18 +900,6 @@
           );
           card.append(row);
         });
-        const speakerCue = firstText(record.speakerCue, record.speakerNote);
-        if (speakerCue) {
-          const cue = createElement("div", {
-            className: "blueprint-field instructor-cue",
-            attributes: { "data-instructor-only": "true" },
-          });
-          cue.append(
-            createElement("strong", { text: "講者提示" }),
-            createElement("p", { text: speakerCue }),
-          );
-          card.append(cue);
-        }
         list.append(card);
       });
       details.append(summary, list);
@@ -1071,147 +1096,6 @@
     return section;
   }
 
-  function renderInstructorPromptLibrary() {
-    const library = state.instructorPromptLibrary;
-    const panel = createElement("section", {
-      className: "instructor-prompt-library",
-      attributes: { "aria-labelledby": "instructor-prompt-library-title" },
-    });
-    const heading = createElement("header", {
-      className: "instructor-prompt-library-heading",
-    });
-    heading.append(
-      createElement("p", {
-        className: "section-kicker",
-        text: "NotebookLM instructor kit",
-      }),
-      createElement("h3", {
-        text: firstText(
-          library.title,
-          "NotebookLM 講師簡報生成提示詞",
-        ),
-        attributes: { id: "instructor-prompt-library-title" },
-      }),
-    );
-    if (library.usageNote) {
-      heading.append(createElement("p", { text: library.usageNote }));
-    }
-    panel.append(heading);
-
-    if (library.error) {
-      panel.append(
-        createElement("p", {
-          className: "instructor-prompt-library-error",
-          text: library.error,
-          attributes: { role: "status" },
-        }),
-      );
-      return panel;
-    }
-
-    const grid = createElement("div", {
-      className: "prompt-grid instructor-prompt-grid",
-    });
-    library.items.forEach((item, index) => {
-      const record = isObject(item) ? item : { text: item };
-      const codeId = `instructor-prompt-${safeToken(
-        record.id,
-        String(index + 1),
-      )}-${index + 1}`;
-      const title = itemTitle(record, `講師提示詞 ${index + 1}`);
-      const card = createElement("article", {
-        className: "prompt-card instructor-prompt-card",
-      });
-      const cardHeader = createElement("header");
-      const titleWrap = createElement("div", { className: "prompt-title" });
-      titleWrap.append(
-        createElement("span", {
-          text: `${firstText(record.scope, "講師")} PROMPT ${String(
-            index + 1,
-          ).padStart(2, "0")}`,
-        }),
-        createElement("h4", { text: title }),
-      );
-      cardHeader.append(
-        titleWrap,
-        createElement("button", {
-          className: "copy-prompt-button",
-          text: "複製",
-          attributes: {
-            type: "button",
-            "data-copy-target": codeId,
-            "aria-label": `複製講師提示詞：${title}`,
-          },
-        }),
-      );
-      card.append(cardHeader);
-      const purpose = firstText(
-        record.purpose,
-        record.whenToUse,
-        record.description,
-      );
-      if (purpose) {
-        card.append(
-          createElement("p", {
-            className: "prompt-purpose",
-            text: purpose,
-          }),
-        );
-      }
-      const pre = createElement("pre");
-      pre.append(
-        createElement("code", {
-          text:
-            promptText(record) ||
-            "講師提示詞內容暫時無法顯示，請使用已確認的教學來源操作。",
-          attributes: { id: codeId },
-        }),
-      );
-      card.append(pre);
-      grid.append(card);
-    });
-    if (!grid.children.length) {
-      grid.append(
-        createElement("p", {
-          className: "course-fallback",
-          text: "本課的講師提示詞尚未提供，其他課程內容仍可正常使用。",
-        }),
-      );
-    }
-    panel.append(grid);
-    return panel;
-  }
-
-  function renderInstructor(course) {
-    const section = createSection(
-      "course-instructor",
-      "Instructor mode",
-      "講師模式",
-      "顯示帶領提示、講者備註與課堂觀察重點。",
-    );
-    section.classList.add("instructor-section");
-    section.dataset.instructorOnly = "true";
-    const items = arrayFrom(course.instructor, ["items", "notes", "tips"]);
-    const grid = createElement("div", { className: "instructor-grid" });
-    items.forEach((item, index) => {
-      const record =
-        isObject(item) && !itemTitle(item, "")
-          ? { title: "講師操作與回饋", ...item }
-          : item;
-      grid.append(genericCard(record, index, "instructor-card"));
-    });
-    if (!grid.children.length) {
-      grid.append(
-        createElement("p", {
-          className: "course-fallback",
-          text: "本課沒有額外講師備註。",
-        }),
-      );
-    }
-    section.append(grid, renderInstructorPromptLibrary());
-    return section;
-  }
-
   function safetyText(safety) {
     const items = arrayFrom(safety, ["items", "rules", "notes"]);
     const texts = [];
@@ -1244,36 +1128,15 @@
       text: "列印課程",
       attributes: { type: "button" },
     });
-    const instructorButton = createElement("button", {
-      className: "course-tool-button instructor-toggle",
-      text: "開啟講師模式",
-      attributes: {
-        type: "button",
-        "aria-pressed": "false",
-      },
-    });
     printButton.addEventListener("click", () => window.print());
-    instructorButton.addEventListener("click", () => {
-      setInstructorMode(!state.instructorMode, instructorButton);
-    });
     toolbar.append(
       createElement("p", {
         text: "完整課程已展開於本頁，可依導覽直接前往各單元。",
       }),
       createElement("div", { className: "course-tool-actions" }),
     );
-    toolbar.lastElementChild.append(printButton, instructorButton);
+    toolbar.lastElementChild.append(printButton);
     return toolbar;
-  }
-
-  function setInstructorMode(enabled, button) {
-    state.instructorMode = enabled;
-    document.body.classList.toggle("is-instructor-mode", enabled);
-    if (button) {
-      button.setAttribute("aria-pressed", String(enabled));
-      button.textContent = enabled ? "關閉講師模式" : "開啟講師模式";
-    }
-    announce(enabled ? "已開啟講師模式。" : "已關閉講師模式。");
   }
 
   function createNavigation(sections) {
@@ -1290,15 +1153,6 @@
         text: title,
         attributes: { href: `#${section.id}` },
       });
-      if (section.dataset.instructorOnly) {
-        link.dataset.instructorOnly = "true";
-        link.addEventListener("click", () => {
-          const toggle = document.querySelector(".instructor-toggle");
-          if (!state.instructorMode) {
-            setInstructorMode(true, toggle);
-          }
-        });
-      }
       const item = createElement("li");
       item.append(link);
       list.append(item);
@@ -1381,11 +1235,11 @@
       renderWorkflow(course),
       renderPrompts(course),
       renderPractice(course),
+      renderCasePack(course),
       renderCaseStudy(course),
       renderBlueprint(course),
       renderChecklist(course),
       renderAssessment(course),
-      renderInstructor(course),
     ];
     const toolbar = createToolbar();
     const layout = createElement("div", { className: "full-course-layout" });
@@ -1431,40 +1285,6 @@
     root.setAttribute("aria-busy", "false");
   }
 
-  function normalizeInstructorPrompts(data) {
-    const common = Array.isArray(data?.common) ? data.common : [];
-    const courseItems = Array.isArray(data?.courses?.[state.courseId])
-      ? data.courses[state.courseId]
-      : [];
-    if (common.length !== 5 || courseItems.length !== 2) {
-      throw new Error("講師提示詞數量不完整。");
-    }
-    const items = [
-      ...courseItems.map((item) => ({ ...item, scope: "本階" })),
-      ...common.map((item) => ({ ...item, scope: "共用" })),
-    ];
-    if (
-      items.some(
-        (item) =>
-          !isObject(item) ||
-          !firstText(item.id) ||
-          !itemTitle(item, "") ||
-          !promptText(item),
-      )
-    ) {
-      throw new Error("講師提示詞格式不完整。");
-    }
-    return {
-      title: firstText(
-        data.title,
-        "NotebookLM 講師簡報生成提示詞",
-      ),
-      usageNote: firstText(data.usageNote),
-      items,
-      error: "",
-    };
-  }
-
   async function initialize() {
     const source = root.dataset.courseSrc;
     if (
@@ -1473,38 +1293,14 @@
     ) {
       throw new Error("課程資料路徑不正確。");
     }
-    const instructorPromptRequest = fetch(
-      "../../data/instructor-prompts.json",
-      {
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      },
-    )
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`講師提示詞資料回應 ${response.status}`);
-        }
-        return normalizeInstructorPrompts(await response.json());
-      })
-      .catch(() => ({
-        title: "NotebookLM 講師簡報生成提示詞",
-        usageNote: "",
-        items: [],
-        error:
-          "講師提示詞暫時無法載入；完整課程與其他講師備註仍可正常使用。",
-      }));
-    const [response, instructorPromptLibrary] = await Promise.all([
-      fetch(source, {
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      }),
-      instructorPromptRequest,
-    ]);
+    const response = await fetch(source, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
     if (!response.ok) {
       throw new Error(`課程資料回應 ${response.status}`);
     }
     const course = await response.json();
-    state.instructorPromptLibrary = instructorPromptLibrary;
     renderCourse(course);
   }
 

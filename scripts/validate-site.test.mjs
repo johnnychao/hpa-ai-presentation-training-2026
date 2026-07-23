@@ -12,7 +12,6 @@ import {
   validateAvailability,
   validateCatalog,
   validateCourseContent,
-  validateInstructorPrompts,
 } from "./site-lib.mjs";
 
 function fixtureCatalog() {
@@ -156,6 +155,15 @@ test("complete course data requires the contracted timeline, prompts, and bluepr
     })),
     practice: { durationMinutes: 20 },
     caseStudy: { notice: "教學虛構，不代表正式政策立場" },
+    casePack: {
+      isFictional: true,
+      title: "癌症篩檢服務改善案",
+      notice: "教學虛構，非真實個案，不得對外引用。",
+      stageId: "stage-1",
+      entryPath:
+        "../../cases/expanded-cancer-screening/index.html#stage-1",
+      suggestedFiles: ["00_先讀我_資料聲明.md"],
+    },
     blueprint: Array.from({ length: 28 }, (_, index) => ({
       page: index + 1,
       title: `第 ${index + 1} 頁`,
@@ -168,7 +176,6 @@ test("complete course data requires the contracted timeline, prompts, and bluepr
       ...(index === 0 ? { completionScore: 80 } : {}),
     })),
     homework: ["完成初稿"],
-    instructor: {},
     safety: ["一", "二", "三", "四"],
   };
   assert.deepEqual(validateCourseContent(valid, spec).errors, []);
@@ -180,30 +187,52 @@ test("complete course data requires the contracted timeline, prompts, and bluepr
   assert.match(errors, /28 筆/);
 });
 
-test("instructor prompt library includes five common and two per course", () => {
-  const prompt = (id) => ({
-    id,
-    title: `提示詞 ${id}`,
-    text: "請只根據已確認的課程來源完成逐頁內容與人工複核，缺少來源時標示待補，不得自行新增政策事實或機關立場。",
-  });
-  const library = {
-    common: Array.from({ length: 5 }, (_, index) => prompt(`common-${index + 1}`)),
-    courses: Object.fromEntries(
-      ["ai-deck-01", "ai-deck-02", "ai-deck-03"].map((id) => [
-        id,
-        [prompt(`${id}-plan`), prompt(`${id}-notes`)],
-      ]),
-    ),
+test("public course rejects instructor-only fields and requires the case pack", () => {
+  const spec = {
+    id: "ai-deck-01",
+    stage: 1,
+    promptCount: 1,
+    blueprintCount: 1,
   };
-  const valid = validateInstructorPrompts(library);
-  assert.deepEqual(valid.errors, []);
-  assert.equal(valid.promptCount, 11);
-
-  library.courses["ai-deck-03"].pop();
-  assert.match(
-    validateInstructorPrompts(library).errors.join("\n"),
-    /ai-deck-03.*2 筆/,
-  );
+  const course = {
+    id: "ai-deck-01",
+    meta: {
+      stage: 1,
+      durationMinutes: 120,
+      title: "課程",
+      subtitle: "課程",
+      level: "入門",
+      tagline: "課程",
+      completionStandard: "完成",
+    },
+    audience: ["學員"],
+    prerequisites: ["來源"],
+    outputs: ["成果"],
+    objectives: ["一", "二", "三"],
+    timeline: [{ durationMinutes: 120 }, {}, {}, {}, {}],
+    workflow: [{}, {}, {}, {}],
+    prompts: [{
+      title: "提示詞",
+      text: "請只根據已確認來源完成指定任務；資料不足時明確標示待補，不得自行新增政策事實、數字或機關立場。",
+    }],
+    practice: { durationMinutes: 20 },
+    caseStudy: { notice: "教學虛構", intentionalErrors: ["答案"] },
+    blueprint: [{ page: 1, title: "第一頁", speakerCue: "私密提示" }],
+    checklist: ["一", "二", "三", "四", "五"],
+    assessment: [
+      { maxPoints: 100, completionScore: 80 },
+      {}, {}, {}, {},
+    ],
+    safety: ["一", "二", "三", "四"],
+    homework: ["作業"],
+    commonReturnConditions: ["一", "二", "三", "四", "五"],
+    instructor: {},
+  };
+  const errors = validateCourseContent(course, spec).errors.join("\n");
+  assert.match(errors, /casePack 必須是物件/);
+  assert.match(errors, /instructor.*講師私密欄位/);
+  assert.match(errors, /speakerCue.*講師私密欄位/);
+  assert.match(errors, /intentionalErrors.*講師私密欄位/);
 });
 
 test("cancelled presentation topics are detected despite spacing", () => {
@@ -216,6 +245,13 @@ test("sensitive filenames and non-public extensions are blocked", () => {
   assert.ok(classifyRepositoryPath("docs/學員名單.xlsx").length >= 2);
   assert.ok(classifyRepositoryPath("docs/internal-budget.json").length >= 1);
   assert.ok(classifyRepositoryPath(".env.production").length >= 1);
+  assert.deepEqual(
+    classifyRepositoryPath(
+      "docs/cases/expanded-cancer-screening/F01_來源清單與版本.csv",
+    ),
+    [],
+  );
+  assert.ok(classifyRepositoryPath("docs/data/student-export.csv").length >= 1);
   assert.deepEqual(classifyRepositoryPath("docs/assets/hero.webp"), []);
 });
 

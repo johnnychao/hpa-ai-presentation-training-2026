@@ -1,0 +1,41 @@
+{
+  "case_id": "expanded-cancer-screening",
+  "title": "篩檢多一步，落差少一點",
+  "topic": "健康臺灣—擴大癌症篩檢",
+  "language": "zh-Hant",
+  "version": "1.0.0",
+  "updated_at": "2026-07-24",
+  "data_status": "教學虛構｜非官方統計｜全數為電腦生成的聚合資料｜不含個人資料｜不得對外引用",
+  "official_policy_facts": {
+    "location": "00_官方來源導覽.md",
+    "publisher": "衛生福利部國民健康署",
+    "source_count": 3
+  },
+  "fictional_scope": [
+    "示範服務區 A–D",
+    "示範據點 A01–D02",
+    "所有服務量、完成率、調查、訪談、方案、成本與時程"
+  ],
+  "files": [
+    {"id": "F01", "path": "F01_來源清單與版本.csv", "stage": 1, "format": "csv"},
+    {"id": "F02", "path": "F02_新增資格族群服務漏斗_v1_v2.csv", "stage": 1, "format": "csv"},
+    {"id": "F03", "path": "F03_每月服務量_人次與人數.csv", "stage": 1, "format": "csv"},
+    {"id": "F04", "path": "F04_服務區可近性摘要.csv", "stage": 1, "format": "csv"},
+    {"id": "F05", "path": "F05_提醒與協助預約試辦.csv", "stage": 2, "format": "csv"},
+    {"id": "F06", "path": "F06_民眾經驗調查摘要.csv", "stage": 2, "format": "csv"},
+    {"id": "F07", "path": "F07_執行人員訪談主題.csv", "stage": 2, "format": "csv"},
+    {"id": "F08", "path": "F08_方案資源情境估算.csv", "stage": 3, "format": "csv"},
+    {"id": "F09", "path": "F09_未查核_AI初稿.txt", "stage": 2, "format": "txt"},
+    {"id": "T01", "path": "T01_空白來源表.md", "stage": 1, "format": "md"},
+    {"id": "T02", "path": "T02_空白數字台帳.md", "stage": 1, "format": "md"},
+    {"id": "T03", "path": "T03_空白事實核對表.md", "stage": 2, "format": "md"},
+    {"id": "T04", "path": "T04_空白方案比較表.md", "stage": 3, "format": "md"}
+  ],
+  "excluded": [
+    "答案與更正表",
+    "講師提示與示範流程",
+    "建議方案結論",
+    "評分錨點",
+    "個人資料與真實機構資料"
+  ]
+}

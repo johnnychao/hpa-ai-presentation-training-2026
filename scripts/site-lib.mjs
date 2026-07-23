@@ -332,6 +332,18 @@ export function validateAvailability(
 export function validateCourseContent(course, spec) {
   const errors = [];
   const prefix = spec?.id || "course";
+  const privateKeys = new Set([
+    "instructor",
+    "speakerCue",
+    "speakerNote",
+    "feedbackPhrases",
+    "referenceMiniOutline",
+    "intentionalErrors",
+    "correctedTitle",
+    "decisionSentence",
+    "recommendation",
+    "answer",
+  ]);
   const requiredArrays = [
     ["audience", 1],
     ["prerequisites", 1],
@@ -349,6 +361,27 @@ export function validateCourseContent(course, spec) {
   if (!isPlainObject(course)) {
     return { errors: [`${prefix} 頂層必須是物件`] };
   }
+
+  function rejectPrivateFields(value, pathPrefix) {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) =>
+        rejectPrivateFields(item, `${pathPrefix}[${index}]`),
+      );
+      return;
+    }
+    if (!isPlainObject(value)) {
+      return;
+    }
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const fieldPath = `${pathPrefix}.${key}`;
+      if (privateKeys.has(key)) {
+        errors.push(`${fieldPath} 是講師私密欄位，不得出現在公開課程`);
+      }
+      rejectPrivateFields(nestedValue, fieldPath);
+    }
+  }
+  rejectPrivateFields(course, prefix);
+
   if (course.id !== spec?.id) {
     errors.push(`${prefix}.id 必須是 ${spec?.id}`);
   }
@@ -446,8 +479,30 @@ export function validateCourseContent(course, spec) {
   } else if (!JSON.stringify(course.caseStudy).includes("虛構")) {
     errors.push(`${prefix}.caseStudy 必須明示為教學虛構`);
   }
-  if (!isPlainObject(course.instructor)) {
-    errors.push(`${prefix}.instructor 必須是物件`);
+  if (!isPlainObject(course.casePack)) {
+    errors.push(`${prefix}.casePack 必須是物件`);
+  } else {
+    if (course.casePack.isFictional !== true) {
+      errors.push(`${prefix}.casePack.isFictional 必須是 true`);
+    }
+    if (!String(course.casePack.notice || "").includes("虛構")) {
+      errors.push(`${prefix}.casePack.notice 必須明示為教學虛構`);
+    }
+    const expectedStage = `stage-${spec?.stage}`;
+    if (course.casePack.stageId !== expectedStage) {
+      errors.push(`${prefix}.casePack.stageId 必須是 ${expectedStage}`);
+    }
+    const expectedEntryPath =
+      `../../cases/expanded-cancer-screening/index.html#${expectedStage}`;
+    if (course.casePack.entryPath !== expectedEntryPath) {
+      errors.push(`${prefix}.casePack.entryPath 必須是 ${expectedEntryPath}`);
+    }
+    if (
+      !Array.isArray(course.casePack.suggestedFiles) ||
+      course.casePack.suggestedFiles.length < 1
+    ) {
+      errors.push(`${prefix}.casePack.suggestedFiles 必須至少有 1 筆`);
+    }
   }
   const assessment = Array.isArray(course.assessment) ? course.assessment : [];
   const assessmentTotal = assessment.reduce(
@@ -481,54 +536,6 @@ export function validateCourseContent(course, spec) {
   return { errors };
 }
 
-export function validateInstructorPrompts(library, courseSpecs = COURSE_CONTENT_SPECS) {
-  const errors = [];
-  if (!isPlainObject(library)) {
-    return { errors: ["instructor-prompts.json 頂層必須是物件"], promptCount: 0 };
-  }
-
-  const common = Array.isArray(library.common) ? library.common : [];
-  const courses = isPlainObject(library.courses) ? library.courses : {};
-  if (common.length !== 5) {
-    errors.push(`instructor-prompts.common 必須恰好有 5 筆，目前為 ${common.length}`);
-  }
-
-  const allPrompts = [...common];
-  for (const spec of courseSpecs) {
-    const prompts = Array.isArray(courses[spec.id]) ? courses[spec.id] : [];
-    if (prompts.length !== 2) {
-      errors.push(
-        `instructor-prompts.courses.${spec.id} 必須恰好有 2 筆，目前為 ${prompts.length}`,
-      );
-    }
-    allPrompts.push(...prompts);
-  }
-
-  const ids = new Set();
-  allPrompts.forEach((prompt, index) => {
-    const label = `instructor-prompts[${index}]`;
-    if (!isPlainObject(prompt)) {
-      errors.push(`${label} 必須是物件`);
-      return;
-    }
-    if (typeof prompt.id !== "string" || !prompt.id.trim()) {
-      errors.push(`${label}.id 必須是非空字串`);
-    } else if (ids.has(prompt.id)) {
-      errors.push(`${label}.id 重複：${prompt.id}`);
-    } else {
-      ids.add(prompt.id);
-    }
-    if (typeof prompt.title !== "string" || !prompt.title.trim()) {
-      errors.push(`${label}.title 必須是非空字串`);
-    }
-    if (typeof prompt.text !== "string" || prompt.text.trim().length < 40) {
-      errors.push(`${label}.text 必須是可實際使用的完整提示詞`);
-    }
-  });
-
-  return { errors, promptCount: allPrompts.length };
-}
-
 export function normalizePublicText(value) {
   return String(value)
     .normalize("NFKC")
@@ -551,7 +558,10 @@ export function classifyRepositoryPath(relativePath) {
   if (parts.some((part) => part === ".env" || part.startsWith(".env."))) {
     findings.push("環境變數檔不得進入公開 repo");
   }
-  if (BLOCKED_PUBLIC_EXTENSIONS.has(extension)) {
+  const isApprovedSyntheticCaseCsv =
+    extension === ".csv" &&
+    lower.startsWith("docs/cases/expanded-cancer-screening/");
+  if (BLOCKED_PUBLIC_EXTENSIONS.has(extension) && !isApprovedSyntheticCaseCsv) {
     findings.push(`禁止公開的副檔名 ${extension}`);
   }
   const sensitiveTerm = SENSITIVE_FILENAME_TERMS.find((term) => lower.includes(term));
@@ -724,7 +734,6 @@ export async function validateSite(rootDirectory, options = {}) {
   const requiredFiles = [
     catalogPath,
     availabilityPath,
-    instructorPromptsPath,
     indexPath,
     ...courseContentPaths,
   ];
@@ -737,21 +746,23 @@ export async function validateSite(rootDirectory, options = {}) {
   if (errors.length) {
     throw new SiteValidationError(errors);
   }
+  if (await fileExists(instructorPromptsPath)) {
+    errors.push(
+      "docs/data/instructor-prompts.json 是講師私密教材，不得存在於公開網站",
+    );
+  }
 
   let catalog;
   let availability;
   let courseContents;
-  let instructorPrompts;
   try {
     const loaded = await Promise.all([
       readJson(catalogPath),
       readJson(availabilityPath),
       ...courseContentPaths.map((filePath) => readJson(filePath)),
-      readJson(instructorPromptsPath),
     ]);
     [catalog, availability] = loaded;
     courseContents = loaded.slice(2, 2 + COURSE_CONTENT_SPECS.length);
-    instructorPrompts = loaded.at(-1);
   } catch (error) {
     throw new SiteValidationError([error.message]);
   }
@@ -767,8 +778,47 @@ export async function validateSite(rootDirectory, options = {}) {
   courseContents.forEach((course, index) => {
     errors.push(...validateCourseContent(course, COURSE_CONTENT_SPECS[index]).errors);
   });
-  const instructorPromptResult = validateInstructorPrompts(instructorPrompts);
-  errors.push(...instructorPromptResult.errors);
+
+  const caseDirectory = path.join(
+    docsDirectory,
+    "cases",
+    "expanded-cancer-screening",
+  );
+  const caseEntryPath = path.join(caseDirectory, "index.html");
+  let caseEntryHtml = "";
+  if (!(await fileExists(caseEntryPath))) {
+    errors.push(
+      "缺少學生操作資料包 docs/cases/expanded-cancer-screening/index.html",
+    );
+  } else {
+    caseEntryHtml = await fs.readFile(caseEntryPath, "utf8");
+  }
+  for (const course of courseContents) {
+    const casePack = isPlainObject(course.casePack) ? course.casePack : {};
+    const stageId = String(casePack.stageId || "");
+    if (
+      caseEntryHtml &&
+      stageId &&
+      !caseEntryHtml.includes(`id="${stageId}"`)
+    ) {
+      errors.push(`學生操作資料包缺少 #${stageId} 課程定位點`);
+    }
+    for (const fileName of Array.isArray(casePack.suggestedFiles)
+      ? casePack.suggestedFiles
+      : []) {
+      if (
+        typeof fileName !== "string" ||
+        !fileName ||
+        path.basename(fileName) !== fileName
+      ) {
+        errors.push(`${course.id}.casePack.suggestedFiles 含不安全檔名`);
+        continue;
+      }
+      if (!(await fileExists(path.join(caseDirectory, fileName)))) {
+        errors.push(`${course.id}.casePack 建議檔案不存在：${fileName}`);
+      }
+    }
+  }
 
   const repositoryFiles = await listRepositoryFiles(rootDirectory);
   for (const relativePath of repositoryFiles) {
@@ -778,6 +828,17 @@ export async function validateSite(rootDirectory, options = {}) {
   }
 
   const docsFiles = repositoryFiles.filter((file) => file.startsWith("docs/"));
+  const privatePublicMarkers = [
+    "instructor-prompts.json",
+    "講師模式",
+    "data-instructor-only",
+    "speakerCue",
+    "speakerNote",
+    "feedbackPhrases",
+    "referenceMiniOutline",
+    "intentionalErrors",
+    "correctedTitle",
+  ];
 
   for (const sessionPage of catalogResult.sessionPages) {
     const expectedContentPath = `sessions/${sessionPage.id}/`;
@@ -804,9 +865,31 @@ export async function validateSite(rootDirectory, options = {}) {
       continue;
     }
     const text = await fs.readFile(path.join(rootDirectory, relativePath), "utf8");
+    if (
+      path.extname(relativePath).toLowerCase() === ".csv" &&
+      relativePath.startsWith("docs/cases/expanded-cancer-screening/")
+    ) {
+      const rows = text.trim().split(/\r?\n/);
+      if (
+        !rows[0]?.startsWith("data_status,") ||
+        rows.slice(1).some((row) => row && !row.startsWith("教學合成資料,"))
+      ) {
+        errors.push(
+          `${relativePath} 必須以 data_status 欄逐列標示為教學合成資料`,
+        );
+      }
+    }
     const forbidden = findForbiddenPhrases(text);
     if (forbidden.length) {
       errors.push(`${relativePath} 含已取消內容：${forbidden.join("、")}`);
+    }
+    const privateMarkers = privatePublicMarkers.filter((marker) =>
+      text.includes(marker),
+    );
+    if (privateMarkers.length) {
+      errors.push(
+        `${relativePath} 含講師私密內容標記：${privateMarkers.join("、")}`,
+      );
     }
   }
 
@@ -871,7 +954,7 @@ export async function validateSite(rootDirectory, options = {}) {
     sessionCount: catalogResult.sessionIds.length,
     contentPageCount: catalogResult.sessionPages.length,
     courseContentCount: courseContents.length,
-    instructorPromptCount: instructorPromptResult.promptCount,
+    privateInstructorContentExcluded: true,
     openIds: [...availabilityResult.openIds].sort(),
     repositoryFileCount: repositoryFiles.length,
     checkedReferences,
