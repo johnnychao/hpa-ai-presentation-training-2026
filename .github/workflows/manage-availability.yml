@@ -1,0 +1,129 @@
+name: 管理場次開放狀態
+
+run-name: 完整更新六場開放狀態 · @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_01_open:
+        description: "完整清單：第1場（2026-07-24）應開放才勾選；未勾即關閉"
+        required: true
+        default: false
+        type: boolean
+      session_02_open:
+        description: "完整清單：第2場（2026-08-07）應開放才勾選；未勾即關閉"
+        required: true
+        default: false
+        type: boolean
+      session_03_open:
+        description: "完整清單：第3場（2026-08-21）應開放才勾選；未勾即關閉"
+        required: true
+        default: false
+        type: boolean
+      session_04_open:
+        description: "完整清單：第4場（2026-09-04）應開放才勾選；未勾即關閉"
+        required: true
+        default: false
+        type: boolean
+      session_05_open:
+        description: "完整清單：第5場（2026-09-18）應開放才勾選；未勾即關閉"
+        required: true
+        default: false
+        type: boolean
+      session_06_open:
+        description: "完整清單：第6場（2026-10-02）應開放才勾選；未勾即關閉"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: hpa-course-pages
+  cancel-in-progress: false
+
+jobs:
+  update-validate-and-package:
+    name: Update, validate, and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    env:
+      SESSION_01_OPEN: ${{ inputs.session_01_open }}
+      SESSION_02_OPEN: ${{ inputs.session_02_open }}
+      SESSION_03_OPEN: ${{ inputs.session_03_open }}
+      SESSION_04_OPEN: ${{ inputs.session_04_open }}
+      SESSION_05_OPEN: ${{ inputs.session_05_open }}
+      SESSION_06_OPEN: ${{ inputs.session_06_open }}
+    steps:
+      - name: Require the main branch
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::請在 Run workflow 的 Branch 選擇 main。"
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run zero-dependency tests
+        run: npm test
+
+      - name: Replace the complete six-session snapshot
+        run: node scripts/set-availability.mjs
+
+      - name: Validate selected state and public site
+        run: node scripts/validate-site.mjs --expect-open-from-env
+
+      - name: Commit availability when changed
+        shell: bash
+        run: |
+          changed="$(git diff --name-only)"
+          if [[ -z "$changed" ]]; then
+            echo "六場狀態未改變；略過 commit。"
+            exit 0
+          fi
+
+          if [[ "$changed" != "docs/data/availability.json" ]]; then
+            echo "::error::管理 workflow 只能修改 docs/data/availability.json；實際變更：$changed"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/availability.json
+          git commit -m "chore: update course availability"
+          git push origin HEAD:main
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    name: Deploy selected state
+    needs: update-validate-and-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

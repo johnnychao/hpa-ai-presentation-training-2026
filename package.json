@@ -1,0 +1,17 @@
+{
+  "name": "hpa-ai-presentation-training-2026",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "國民健康署 AI 簡報教育訓練公開入口與零依賴驗證工具",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "serve": "node scripts/serve-local.mjs",
+    "test": "node --test scripts/validate-site.test.mjs",
+    "validate": "node scripts/validate-site.mjs",
+    "validate:initial": "node scripts/validate-site.mjs --expect-open=session-01",
+    "check": "npm test && npm run validate"
+  }
+}

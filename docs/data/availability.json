@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "defaultOpen": false,
+  "sessions": {
+    "session-01": {
+      "isOpen": true
+    },
+    "session-02": {
+      "isOpen": false
+    },
+    "session-03": {
+      "isOpen": false
+    },
+    "session-04": {
+      "isOpen": false
+    },
+    "session-05": {
+      "isOpen": false
+    },
+    "session-06": {
+      "isOpen": false
+    }
+  }
+}
