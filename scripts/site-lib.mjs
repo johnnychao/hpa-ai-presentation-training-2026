@@ -5,6 +5,30 @@ export const SESSION_IDS = Object.freeze(
   Array.from({ length: 6 }, (_, index) => `session-${String(index + 1).padStart(2, "0")}`),
 );
 
+export const COURSE_CONTENT_SPECS = Object.freeze([
+  Object.freeze({
+    id: "ai-deck-01",
+    stage: 1,
+    promptCount: 5,
+    blueprintCount: 28,
+    requiredOutputTerms: ["8–10", "來源", "3"],
+  }),
+  Object.freeze({
+    id: "ai-deck-02",
+    stage: 2,
+    promptCount: 5,
+    blueprintCount: 30,
+    requiredOutputTerms: ["10–12", "事實核對"],
+  }),
+  Object.freeze({
+    id: "ai-deck-03",
+    stage: 3,
+    promptCount: 7,
+    blueprintCount: 31,
+    requiredOutputTerms: ["8–10", "決策摘要", "10", "6"],
+  }),
+]);
+
 export const FORBIDDEN_PUBLIC_PHRASES = Object.freeze([
   "簡報修改次數極大化",
   "修改次數極大化",
@@ -305,6 +329,206 @@ export function validateAvailability(
   return { errors, openIds };
 }
 
+export function validateCourseContent(course, spec) {
+  const errors = [];
+  const prefix = spec?.id || "course";
+  const requiredArrays = [
+    ["audience", 1],
+    ["prerequisites", 1],
+    ["outputs", 1],
+    ["objectives", 3],
+    ["timeline", 5],
+    ["workflow", 4],
+    ["prompts", spec?.promptCount || 1],
+    ["blueprint", spec?.blueprintCount || 1],
+    ["checklist", 5],
+    ["assessment", 5],
+    ["safety", 4],
+  ];
+
+  if (!isPlainObject(course)) {
+    return { errors: [`${prefix} 頂層必須是物件`] };
+  }
+  if (course.id !== spec?.id) {
+    errors.push(`${prefix}.id 必須是 ${spec?.id}`);
+  }
+  if (!isPlainObject(course.meta)) {
+    errors.push(`${prefix}.meta 必須是物件`);
+  } else {
+    if (course.meta.stage !== spec?.stage) {
+      errors.push(`${prefix}.meta.stage 必須是 ${spec?.stage}`);
+    }
+    if (course.meta.durationMinutes !== 120) {
+      errors.push(`${prefix}.meta.durationMinutes 必須是 120`);
+    }
+    for (const field of ["title", "subtitle", "level", "tagline", "completionStandard"]) {
+      if (typeof course.meta[field] !== "string" || !course.meta[field].trim()) {
+        errors.push(`${prefix}.meta.${field} 必須是非空字串`);
+      }
+    }
+  }
+
+  for (const [field, minimum] of requiredArrays) {
+    const value = course[field];
+    if (!Array.isArray(value) || value.length < minimum) {
+      const exact =
+        field === "prompts" || field === "blueprint"
+          ? `恰好 ${minimum}`
+          : `至少 ${minimum}`;
+      errors.push(`${prefix}.${field} 必須${exact} 筆`);
+      continue;
+    }
+    if (
+      (field === "prompts" || field === "blueprint") &&
+      value.length !== minimum
+    ) {
+      errors.push(`${prefix}.${field} 必須恰好 ${minimum} 筆，目前為 ${value.length}`);
+    }
+  }
+
+  const timeline = Array.isArray(course.timeline) ? course.timeline : [];
+  const timelineTotal = timeline.reduce((total, segment) => {
+    const direct = Number(segment?.durationMinutes ?? segment?.minutes);
+    if (Number.isFinite(direct) && direct >= 0) {
+      return total + direct;
+    }
+    const start = Number(segment?.startMinute);
+    const end = Number(segment?.endMinute);
+    return Number.isFinite(start) && Number.isFinite(end) && end >= start
+      ? total + (end - start)
+      : total;
+  }, 0);
+  if (timeline.length && timelineTotal !== 120) {
+    errors.push(`${prefix}.timeline 必須合計 120 分鐘，目前為 ${timelineTotal}`);
+  }
+
+  const prompts = Array.isArray(course.prompts) ? course.prompts : [];
+  prompts.forEach((prompt, index) => {
+    if (!isPlainObject(prompt)) {
+      errors.push(`${prefix}.prompts[${index}] 必須是物件`);
+      return;
+    }
+    if (typeof prompt.title !== "string" || !prompt.title.trim()) {
+      errors.push(`${prefix}.prompts[${index}].title 必須是非空字串`);
+    }
+    if (typeof prompt.text !== "string" || prompt.text.trim().length < 40) {
+      errors.push(`${prefix}.prompts[${index}].text 必須是可實際使用的完整提示詞`);
+    }
+  });
+
+  const blueprint = Array.isArray(course.blueprint) ? course.blueprint : [];
+  blueprint.forEach((page, index) => {
+    const pageNumber = Number(page?.page ?? page?.pageNumber);
+    if (pageNumber !== index + 1) {
+      errors.push(`${prefix}.blueprint[${index}] 頁碼必須是 ${index + 1}`);
+    }
+    if (typeof page?.title !== "string" || !page.title.trim()) {
+      errors.push(`${prefix}.blueprint[${index}].title 必須是非空字串`);
+    }
+  });
+
+  const outputText = (Array.isArray(course.outputs) ? course.outputs : [])
+    .map((value) => String(value))
+    .join(" ");
+  for (const term of spec?.requiredOutputTerms || []) {
+    if (!outputText.includes(term)) {
+      errors.push(`${prefix}.outputs 缺少完成標準關鍵字 ${term}`);
+    }
+  }
+
+  if (!isPlainObject(course.practice)) {
+    errors.push(`${prefix}.practice 必須是物件`);
+  } else if (course.practice.durationMinutes !== 20) {
+    errors.push(`${prefix}.practice.durationMinutes 必須是 20`);
+  }
+  if (!isPlainObject(course.caseStudy)) {
+    errors.push(`${prefix}.caseStudy 必須是物件`);
+  } else if (!JSON.stringify(course.caseStudy).includes("虛構")) {
+    errors.push(`${prefix}.caseStudy 必須明示為教學虛構`);
+  }
+  if (!isPlainObject(course.instructor)) {
+    errors.push(`${prefix}.instructor 必須是物件`);
+  }
+  const assessment = Array.isArray(course.assessment) ? course.assessment : [];
+  const assessmentTotal = assessment.reduce(
+    (total, item) => total + Number(item?.maxPoints || 0),
+    0,
+  );
+  if (assessment.length && assessmentTotal !== 100) {
+    errors.push(`${prefix}.assessment 最高分必須合計 100，目前為 ${assessmentTotal}`);
+  }
+  if (
+    assessment.length &&
+    !assessment.some((item) => Number(item?.completionScore) === 80)
+  ) {
+    errors.push(`${prefix}.assessment 必須明示 80 分完成標準`);
+  }
+  if (
+    !Array.isArray(course.commonReturnConditions) ||
+    course.commonReturnConditions.length !== 5
+  ) {
+    errors.push(`${prefix}.commonReturnConditions 必須恰好有 5 筆`);
+  }
+  const homeworkIsArray = Array.isArray(course.homework) && course.homework.length > 0;
+  const homeworkIsObject =
+    isPlainObject(course.homework) &&
+    Array.isArray(course.homework.tasks) &&
+    course.homework.tasks.length > 0;
+  if (!homeworkIsArray && !homeworkIsObject) {
+    errors.push(`${prefix}.homework 必須包含至少一項課後任務`);
+  }
+
+  return { errors };
+}
+
+export function validateInstructorPrompts(library, courseSpecs = COURSE_CONTENT_SPECS) {
+  const errors = [];
+  if (!isPlainObject(library)) {
+    return { errors: ["instructor-prompts.json 頂層必須是物件"], promptCount: 0 };
+  }
+
+  const common = Array.isArray(library.common) ? library.common : [];
+  const courses = isPlainObject(library.courses) ? library.courses : {};
+  if (common.length !== 5) {
+    errors.push(`instructor-prompts.common 必須恰好有 5 筆，目前為 ${common.length}`);
+  }
+
+  const allPrompts = [...common];
+  for (const spec of courseSpecs) {
+    const prompts = Array.isArray(courses[spec.id]) ? courses[spec.id] : [];
+    if (prompts.length !== 2) {
+      errors.push(
+        `instructor-prompts.courses.${spec.id} 必須恰好有 2 筆，目前為 ${prompts.length}`,
+      );
+    }
+    allPrompts.push(...prompts);
+  }
+
+  const ids = new Set();
+  allPrompts.forEach((prompt, index) => {
+    const label = `instructor-prompts[${index}]`;
+    if (!isPlainObject(prompt)) {
+      errors.push(`${label} 必須是物件`);
+      return;
+    }
+    if (typeof prompt.id !== "string" || !prompt.id.trim()) {
+      errors.push(`${label}.id 必須是非空字串`);
+    } else if (ids.has(prompt.id)) {
+      errors.push(`${label}.id 重複：${prompt.id}`);
+    } else {
+      ids.add(prompt.id);
+    }
+    if (typeof prompt.title !== "string" || !prompt.title.trim()) {
+      errors.push(`${label}.title 必須是非空字串`);
+    }
+    if (typeof prompt.text !== "string" || prompt.text.trim().length < 40) {
+      errors.push(`${label}.text 必須是可實際使用的完整提示詞`);
+    }
+  });
+
+  return { errors, promptCount: allPrompts.length };
+}
+
 export function normalizePublicText(value) {
   return String(value)
     .normalize("NFKC")
@@ -488,8 +712,22 @@ export async function validateSite(rootDirectory, options = {}) {
   const docsDirectory = path.join(rootDirectory, "docs");
   const catalogPath = path.join(docsDirectory, "data", "course-catalog.json");
   const availabilityPath = path.join(docsDirectory, "data", "availability.json");
+  const courseContentPaths = COURSE_CONTENT_SPECS.map((spec) =>
+    path.join(docsDirectory, "data", "courses", `${spec.id}.json`),
+  );
+  const instructorPromptsPath = path.join(
+    docsDirectory,
+    "data",
+    "instructor-prompts.json",
+  );
   const indexPath = path.join(docsDirectory, "index.html");
-  const requiredFiles = [catalogPath, availabilityPath, indexPath];
+  const requiredFiles = [
+    catalogPath,
+    availabilityPath,
+    instructorPromptsPath,
+    indexPath,
+    ...courseContentPaths,
+  ];
 
   for (const requiredFile of requiredFiles) {
     if (!(await fileExists(requiredFile))) {
@@ -502,11 +740,18 @@ export async function validateSite(rootDirectory, options = {}) {
 
   let catalog;
   let availability;
+  let courseContents;
+  let instructorPrompts;
   try {
-    [catalog, availability] = await Promise.all([
+    const loaded = await Promise.all([
       readJson(catalogPath),
       readJson(availabilityPath),
+      ...courseContentPaths.map((filePath) => readJson(filePath)),
+      readJson(instructorPromptsPath),
     ]);
+    [catalog, availability] = loaded;
+    courseContents = loaded.slice(2, 2 + COURSE_CONTENT_SPECS.length);
+    instructorPrompts = loaded.at(-1);
   } catch (error) {
     throw new SiteValidationError([error.message]);
   }
@@ -519,6 +764,11 @@ export async function validateSite(rootDirectory, options = {}) {
     options.expectedOpen ?? null,
   );
   errors.push(...availabilityResult.errors);
+  courseContents.forEach((course, index) => {
+    errors.push(...validateCourseContent(course, COURSE_CONTENT_SPECS[index]).errors);
+  });
+  const instructorPromptResult = validateInstructorPrompts(instructorPrompts);
+  errors.push(...instructorPromptResult.errors);
 
   const repositoryFiles = await listRepositoryFiles(rootDirectory);
   for (const relativePath of repositoryFiles) {
@@ -620,6 +870,8 @@ export async function validateSite(rootDirectory, options = {}) {
     cohortCount: catalogResult.cohortCount,
     sessionCount: catalogResult.sessionIds.length,
     contentPageCount: catalogResult.sessionPages.length,
+    courseContentCount: courseContents.length,
+    instructorPromptCount: instructorPromptResult.promptCount,
     openIds: [...availabilityResult.openIds].sort(),
     repositoryFileCount: repositoryFiles.length,
     checkedReferences,

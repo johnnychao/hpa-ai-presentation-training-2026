@@ -3,6 +3,7 @@
   "series": {
     "id": "hpa-ai-presentation-training-2026",
     "title": "AI 簡報教育訓練工作坊",
+    "description": "以 NotebookLM 為主要工具，從可信來源、可提報精修一路走到主管決策溝通；每一場都提供可直接操作的提示詞、實作任務與品質檢核。",
     "timezone": "Asia/Taipei",
     "sessionDurationMinutes": 120
   },
@@ -50,12 +51,13 @@
   "cohorts": [
     {
       "id": "cohort-01",
+      "courseId": "ai-deck-01",
       "sequence": 1,
       "label": "第1梯",
       "courseName": "AI 簡報力啟動專題：從資料來源到可信初稿",
       "difficulty": "入門",
       "goal": "完成有結構、有來源、有初稿的簡報",
-      "learnerOutput": "8-10 頁 AI 簡報初稿、來源清單",
+      "learnerOutput": "8–10 頁 AI 簡報初稿、來源清單、3 個待查證問題",
       "theme": "NotebookLM 建立來源、摘要、產生 Slide Deck 初稿",
       "sessions": [
         {
@@ -80,12 +82,13 @@
     },
     {
       "id": "cohort-02",
+      "courseId": "ai-deck-02",
       "sequence": 2,
       "label": "第2梯",
       "courseName": "AI 簡報品質精修專題：從 AI 初稿到可提報版本",
       "difficulty": "深化實作",
       "goal": "完成可提報、可核對、可讀的簡報",
-      "learnerOutput": "10-12 頁可提報版簡報、事實核對表",
+      "learnerOutput": "10–12 頁可提報版簡報、10 筆以上事實核對表",
       "theme": "來源包品質、故事線、頁面重寫、圖表頁修正",
       "sessions": [
         {
@@ -110,12 +113,13 @@
     },
     {
       "id": "cohort-03",
+      "courseId": "ai-deck-03",
       "sequence": 3,
       "label": "第3梯",
       "courseName": "AI 決策簡報應用專題：從政策訊息到主管決策溝通",
       "difficulty": "主管/幕僚應用",
       "goal": "完成首長或跨組會議可用的決策簡報",
-      "learnerOutput": "首長簡報版、1 頁決策摘要、Q&A 備答",
+      "learnerOutput": "首長版 8–10 頁、1 頁決策摘要、10 題 Q&A、6 分鐘口頭稿",
       "theme": "決策訊息、風險與替代方案、Q&A、上台版優化",
       "sessions": [
         {
