@@ -29,6 +29,31 @@ export const COURSE_CONTENT_SPECS = Object.freeze([
   }),
 ]);
 
+export const ASSESSMENT_COURSE_IDS = Object.freeze([
+  "ai-deck-01",
+  "ai-deck-02",
+  "ai-deck-03",
+]);
+
+const ASIA_TAIPEI_TIMEZONE = "Asia/Taipei";
+const ASIA_TAIPEI_OFFSET = "+08:00";
+const FORBIDDEN_ASSESSMENT_FIELD_KEYS = new Set([
+  "answer",
+  "answers",
+  "answerkey",
+  "correct",
+  "correctanswer",
+  "correctanswers",
+  "correctoption",
+  "explanation",
+  "feedback",
+  "iscorrect",
+  "maxpoints",
+  "points",
+  "rationale",
+  "score",
+]);
+
 export const FORBIDDEN_PUBLIC_PHRASES = Object.freeze([
   "簡報修改次數極大化",
   "修改次數極大化",
@@ -186,6 +211,9 @@ export function validateCatalog(catalog) {
   if (catalog?.series?.sessionDurationMinutes !== 120) {
     errors.push("series.sessionDurationMinutes 必須是 120");
   }
+  if (catalog?.series?.timezone !== ASIA_TAIPEI_TIMEZONE) {
+    errors.push(`series.timezone 必須是 ${ASIA_TAIPEI_TIMEZONE}`);
+  }
   if (cohorts.length !== 3) {
     errors.push(`cohorts 必須恰好有 3 梯，目前為 ${cohorts.length}`);
   }
@@ -207,8 +235,12 @@ export function validateCatalog(catalog) {
   const sessions = [];
   cohorts.forEach((cohort, cohortIndex) => {
     const expectedCohortId = `cohort-${String(cohortIndex + 1).padStart(2, "0")}`;
+    const expectedCourseId = ASSESSMENT_COURSE_IDS[cohortIndex];
     if (cohort?.id !== expectedCohortId) {
       errors.push(`第 ${cohortIndex + 1} 梯 id 必須是 ${expectedCohortId}`);
+    }
+    if (cohort?.courseId !== expectedCourseId) {
+      errors.push(`第 ${cohortIndex + 1} 梯 courseId 必須是 ${expectedCourseId}`);
     }
     if (cohortIds.has(cohort?.id)) {
       errors.push(`梯次 id 重複：${cohort?.id}`);
@@ -246,6 +278,14 @@ export function validateCatalog(catalog) {
     }
     if (!isValidTime(session?.startTime) || !isValidTime(session?.endTime)) {
       errors.push(`${expectedId} 的 startTime/endTime 必須是有效 HH:MM`);
+    } else {
+      const durationMinutes =
+        timeToMinutes(session.endTime) - timeToMinutes(session.startTime);
+      if (durationMinutes !== 120) {
+        errors.push(
+          `${expectedId} 的 startTime/endTime 必須相差 120 分鐘，目前為 ${durationMinutes}`,
+        );
+      }
     }
     if (session?.contentPath !== expectedContentPath) {
       errors.push(`${expectedId} 的 contentPath 必須是 ${expectedContentPath}`);
@@ -266,8 +306,65 @@ export function validateCatalog(catalog) {
     cohortCount: cohorts.length,
     sessionPages: sessions.map((session) => ({
       id: session?.id,
+      courseId: cohorts.find((cohort) =>
+        Array.isArray(cohort?.sessions) &&
+        cohort.sessions.some((candidate) => candidate === session),
+      )?.courseId,
+      date: session?.date,
+      startTime: session?.startTime,
+      endTime: session?.endTime,
+      timezone: catalog?.series?.timezone,
       contentPath: session?.contentPath,
     })),
+  };
+}
+
+export function assessmentWindowStatus({
+  date,
+  startTime,
+  endTime,
+  type,
+  now,
+}) {
+  if (!isValidIsoDate(date)) {
+    throw new Error("date 必須是有效 YYYY-MM-DD 日期");
+  }
+  if (!isValidTime(startTime) || !isValidTime(endTime)) {
+    throw new Error("startTime/endTime 必須是有效 HH:MM");
+  }
+  if (!["pre", "post"].includes(type)) {
+    throw new Error('type 必須是 "pre" 或 "post"');
+  }
+
+  const start = new Date(`${date}T${startTime}:00${ASIA_TAIPEI_OFFSET}`);
+  const end = new Date(`${date}T${endTime}:00${ASIA_TAIPEI_OFFSET}`);
+  if (end.getTime() <= start.getTime()) {
+    throw new Error("endTime 必須晚於 startTime");
+  }
+
+  const current = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+  if (!Number.isFinite(current.getTime())) {
+    throw new Error("now 必須是有效日期時間");
+  }
+
+  const open =
+    type === "pre"
+      ? new Date(start.getTime() - 30 * 60 * 1000)
+      : new Date(end.getTime() - 10 * 60 * 1000);
+  const close = type === "pre" ? start : end;
+  const currentTime = current.getTime();
+  const status =
+    currentTime < open.getTime()
+      ? "upcoming"
+      : currentTime < close.getTime()
+        ? "open"
+        : "closed";
+
+  return {
+    status,
+    isOpen: status === "open",
+    opensAt: open.toISOString(),
+    closesAt: close.toISOString(),
   };
 }
 
@@ -327,6 +424,242 @@ export function validateAvailability(
   }
 
   return { errors, openIds };
+}
+
+export function validateAssessments(assessments) {
+  const errors = [];
+  const formActionPattern =
+    /^https:\/\/docs\.google\.com\/forms\/d\/e\/[^/?#\s]+\/formResponse$/;
+  const fieldNamePattern = /^entry\.\d+$/;
+
+  if (!isPlainObject(assessments)) {
+    return { errors: ["assessments.json 頂層必須是物件"] };
+  }
+
+  function rejectAnswerFields(value, fieldPath) {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) =>
+        rejectAnswerFields(item, `${fieldPath}[${index}]`),
+      );
+      return;
+    }
+    if (!isPlainObject(value)) {
+      return;
+    }
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const normalizedKey = key.toLocaleLowerCase("en-US").replace(/[-_\s]/g, "");
+      const nestedPath = `${fieldPath}.${key}`;
+      if (FORBIDDEN_ASSESSMENT_FIELD_KEYS.has(normalizedKey)) {
+        errors.push(`${nestedPath} 是答案或計分欄位，不得出現在公開 assessments.json`);
+      }
+      rejectAnswerFields(nestedValue, nestedPath);
+    }
+  }
+  rejectAnswerFields(assessments, "assessments");
+
+  if (assessments.schemaVersion !== "1.0.0") {
+    errors.push('assessments.schemaVersion 必須是 "1.0.0"');
+  }
+  if (
+    typeof assessments.questionVersion !== "string" ||
+    !assessments.questionVersion.trim()
+  ) {
+    errors.push("assessments.questionVersion 必須是非空白字串");
+  }
+  if (assessments.timezone !== ASIA_TAIPEI_TIMEZONE) {
+    errors.push(`assessments.timezone 必須是 ${ASIA_TAIPEI_TIMEZONE}`);
+  }
+
+  const preTiming = assessments?.timing?.pre;
+  const postTiming = assessments?.timing?.post;
+  if (
+    !isPlainObject(preTiming) ||
+    preTiming.openMinutesBeforeStart !== 30 ||
+    preTiming.closeAt !== "start"
+  ) {
+    errors.push(
+      'assessments.timing.pre 必須設定 openMinutesBeforeStart=30、closeAt="start"',
+    );
+  }
+  if (
+    !isPlainObject(postTiming) ||
+    postTiming.openMinutesBeforeEnd !== 10 ||
+    postTiming.closeAt !== "end"
+  ) {
+    errors.push(
+      'assessments.timing.post 必須設定 openMinutesBeforeEnd=10、closeAt="end"',
+    );
+  }
+
+  const submission = assessments.submission;
+  const submissionEntries = {};
+  if (!isPlainObject(submission)) {
+    errors.push("assessments.submission 必須是物件");
+  }
+  if (
+    typeof submission?.payloadSchema !== "string" ||
+    !submission.payloadSchema.trim()
+  ) {
+    errors.push("assessments.submission.payloadSchema 必須是非空白字串");
+  }
+  for (const type of ["pre", "post"]) {
+    const configuration = submission?.[type];
+    submissionEntries[type] = configuration;
+    if (!isPlainObject(configuration)) {
+      errors.push(`assessments.submission.${type} 必須是物件`);
+      continue;
+    }
+    if (configuration.provider !== "google-forms") {
+      errors.push(
+        `assessments.submission.${type}.provider 必須是 "google-forms"`,
+      );
+    }
+    if (!formActionPattern.test(configuration.action || "")) {
+      errors.push(
+        `assessments.submission.${type}.action 必須是公開 Google Forms formResponse 網址`,
+      );
+    }
+    if (!fieldNamePattern.test(configuration.fieldName || "")) {
+      errors.push(
+        `assessments.submission.${type}.fieldName 必須符合 entry.<digits>`,
+      );
+    }
+  }
+  if (
+    submissionEntries.pre?.action &&
+    submissionEntries.pre.action === submissionEntries.post?.action
+  ) {
+    errors.push("前測與後測必須使用不同的 Google Forms action");
+  }
+
+  const satisfaction = assessments.satisfaction;
+  if (!isPlainObject(satisfaction)) {
+    errors.push("assessments.satisfaction 必須是物件");
+  } else {
+    if (satisfaction.appliesTo !== "post") {
+      errors.push('assessments.satisfaction.appliesTo 必須是 "post"');
+    }
+    const scale = Array.isArray(satisfaction.scale) ? satisfaction.scale : [];
+    if (scale.length !== 5) {
+      errors.push(`assessments.satisfaction.scale 必須恰好有 5 筆，目前為 ${scale.length}`);
+    }
+    scale.forEach((item, index) => {
+      if (
+        !isPlainObject(item) ||
+        item.value !== index + 1 ||
+        typeof item.label !== "string" ||
+        !item.label.trim()
+      ) {
+        errors.push(
+          `assessments.satisfaction.scale[${index}] 必須有 value=${index + 1} 與非空白 label`,
+        );
+      }
+    });
+
+    const questions = Array.isArray(satisfaction.questions)
+      ? satisfaction.questions
+      : [];
+    if (questions.length !== 5) {
+      errors.push(
+        `assessments.satisfaction.questions 必須恰好有 5 題，目前為 ${questions.length}`,
+      );
+    }
+    const satisfactionIds = new Set();
+    questions.forEach((question, index) => {
+      const prefix = `assessments.satisfaction.questions[${index}]`;
+      if (!isPlainObject(question)) {
+        errors.push(`${prefix} 必須是物件`);
+        return;
+      }
+      const keys = Object.keys(question).sort();
+      if (keys.length !== 2 || keys[0] !== "id" || keys[1] !== "stem") {
+        errors.push(`${prefix} 只能包含 id 與 stem`);
+      }
+      if (typeof question.id !== "string" || !question.id.trim()) {
+        errors.push(`${prefix}.id 必須是非空白字串`);
+      } else if (satisfactionIds.has(question.id)) {
+        errors.push(`${prefix}.id 重複：${question.id}`);
+      } else {
+        satisfactionIds.add(question.id);
+      }
+      if (typeof question.stem !== "string" || !question.stem.trim()) {
+        errors.push(`${prefix}.stem 必須是非空白字串`);
+      }
+    });
+  }
+
+  const courses = isPlainObject(assessments.courses) ? assessments.courses : {};
+  const courseIds = Object.keys(courses).sort();
+  if (
+    courseIds.length !== ASSESSMENT_COURSE_IDS.length ||
+    courseIds.some((courseId, index) => courseId !== ASSESSMENT_COURSE_IDS[index])
+  ) {
+    errors.push(
+      `assessments.courses 必須且只能包含 ${ASSESSMENT_COURSE_IDS.join(", ")}`,
+    );
+  }
+
+  const questionIds = new Set();
+  for (const courseId of ASSESSMENT_COURSE_IDS) {
+    const course = courses[courseId];
+    if (!isPlainObject(course)) {
+      errors.push(`assessments.courses.${courseId} 必須是物件`);
+      continue;
+    }
+    for (const type of ["pre", "post"]) {
+      const questions = Array.isArray(course?.[type]?.questions)
+        ? course[type].questions
+        : [];
+      const prefix = `assessments.courses.${courseId}.${type}.questions`;
+      if (questions.length !== 10) {
+        errors.push(`${prefix} 必須恰好有 10 題，目前為 ${questions.length}`);
+      }
+      questions.forEach((question, index) => {
+        const questionPath = `${prefix}[${index}]`;
+        if (!isPlainObject(question)) {
+          errors.push(`${questionPath} 必須是物件`);
+          return;
+        }
+        const keys = Object.keys(question).sort();
+        if (
+          keys.length !== 3 ||
+          keys[0] !== "id" ||
+          keys[1] !== "options" ||
+          keys[2] !== "stem"
+        ) {
+          errors.push(`${questionPath} 只能包含 id、stem 與 options`);
+        }
+        if (typeof question.id !== "string" || !question.id.trim()) {
+          errors.push(`${questionPath}.id 必須是非空白字串`);
+        } else if (questionIds.has(question.id)) {
+          errors.push(`${questionPath}.id 重複：${question.id}`);
+        } else {
+          questionIds.add(question.id);
+        }
+        if (typeof question.stem !== "string" || !question.stem.trim()) {
+          errors.push(`${questionPath}.stem 必須是非空白字串`);
+        }
+        if (
+          !Array.isArray(question.options) ||
+          question.options.length !== 4 ||
+          question.options.some(
+            (option) => typeof option !== "string" || !option.trim(),
+          )
+        ) {
+          errors.push(`${questionPath}.options 必須恰好有 4 個非空白選項`);
+        }
+      });
+    }
+  }
+
+  return {
+    errors,
+    courseCount: courseIds.length,
+    questionCount: questionIds.size,
+    satisfactionQuestionCount: Array.isArray(satisfaction?.questions)
+      ? satisfaction.questions.length
+      : 0,
+  };
 }
 
 export function validateCourseContent(course, spec) {
@@ -650,16 +983,40 @@ export function auditHtml(html, fileLabel = "index.html") {
   return { errors, references };
 }
 
-export function auditSessionPageIdentity(html, sessionId, fileLabel = "session page") {
+export function auditSessionPageIdentity(
+  html,
+  sessionOrId,
+  fileLabel = "session page",
+) {
   const errors = [];
   const mainTag = html.match(/<main\b[^>]*>/i)?.[0] || "";
-  const expectedAttribute = new RegExp(
-    `\\bdata-session-id\\s*=\\s*(["'])${escapeRegularExpression(sessionId)}\\1`,
-    "i",
-  );
+  const expected =
+    typeof sessionOrId === "string"
+      ? { id: sessionOrId }
+      : isPlainObject(sessionOrId)
+        ? sessionOrId
+        : {};
+  const attributes = [
+    ["id", "data-session-id"],
+    ["courseId", "data-course-id"],
+    ["date", "data-session-date"],
+    ["startTime", "data-start-time"],
+    ["endTime", "data-end-time"],
+    ["timezone", "data-timezone"],
+  ];
 
-  if (!mainTag || !expectedAttribute.test(mainTag)) {
-    errors.push(`${fileLabel} 的 main 必須宣告 data-session-id="${sessionId}"`);
+  for (const [field, attribute] of attributes) {
+    const value = expected[field];
+    if (typeof value !== "string" || !value) {
+      continue;
+    }
+    const expectedAttribute = new RegExp(
+      `\\b${attribute}\\s*=\\s*(["'])${escapeRegularExpression(value)}\\1`,
+      "i",
+    );
+    if (!mainTag || !expectedAttribute.test(mainTag)) {
+      errors.push(`${fileLabel} 的 main 必須宣告 ${attribute}="${value}"`);
+    }
   }
 
   return errors;
@@ -722,6 +1079,7 @@ export async function validateSite(rootDirectory, options = {}) {
   const docsDirectory = path.join(rootDirectory, "docs");
   const catalogPath = path.join(docsDirectory, "data", "course-catalog.json");
   const availabilityPath = path.join(docsDirectory, "data", "availability.json");
+  const assessmentsPath = path.join(docsDirectory, "data", "assessments.json");
   const courseContentPaths = COURSE_CONTENT_SPECS.map((spec) =>
     path.join(docsDirectory, "data", "courses", `${spec.id}.json`),
   );
@@ -734,6 +1092,7 @@ export async function validateSite(rootDirectory, options = {}) {
   const requiredFiles = [
     catalogPath,
     availabilityPath,
+    assessmentsPath,
     indexPath,
     ...courseContentPaths,
   ];
@@ -754,15 +1113,17 @@ export async function validateSite(rootDirectory, options = {}) {
 
   let catalog;
   let availability;
+  let assessments;
   let courseContents;
   try {
     const loaded = await Promise.all([
       readJson(catalogPath),
       readJson(availabilityPath),
+      readJson(assessmentsPath),
       ...courseContentPaths.map((filePath) => readJson(filePath)),
     ]);
-    [catalog, availability] = loaded;
-    courseContents = loaded.slice(2, 2 + COURSE_CONTENT_SPECS.length);
+    [catalog, availability, assessments] = loaded;
+    courseContents = loaded.slice(3, 3 + COURSE_CONTENT_SPECS.length);
   } catch (error) {
     throw new SiteValidationError([error.message]);
   }
@@ -775,6 +1136,8 @@ export async function validateSite(rootDirectory, options = {}) {
     options.expectedOpen ?? null,
   );
   errors.push(...availabilityResult.errors);
+  const assessmentsResult = validateAssessments(assessments);
+  errors.push(...assessmentsResult.errors);
   courseContents.forEach((course, index) => {
     errors.push(...validateCourseContent(course, COURSE_CONTENT_SPECS[index]).errors);
   });
@@ -856,7 +1219,7 @@ export async function validateSite(rootDirectory, options = {}) {
     }
     const sessionHtml = await fs.readFile(pagePath, "utf8");
     errors.push(
-      ...auditSessionPageIdentity(sessionHtml, sessionPage.id, expectedRelativePath),
+      ...auditSessionPageIdentity(sessionHtml, sessionPage, expectedRelativePath),
     );
   }
 
@@ -954,6 +1317,8 @@ export async function validateSite(rootDirectory, options = {}) {
     sessionCount: catalogResult.sessionIds.length,
     contentPageCount: catalogResult.sessionPages.length,
     courseContentCount: courseContents.length,
+    assessmentQuestionCount: assessmentsResult.questionCount,
+    satisfactionQuestionCount: assessmentsResult.satisfactionQuestionCount,
     privateInstructorContentExcluded: true,
     openIds: [...availabilityResult.openIds].sort(),
     repositoryFileCount: repositoryFiles.length,
@@ -975,6 +1340,11 @@ function isValidTime(value) {
   }
   const [hour, minute] = value.split(":").map(Number);
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
+function timeToMinutes(value) {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
 }
 
 function isLocalReference(reference) {

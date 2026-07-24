@@ -1,16 +1,17 @@
 # 國民健康署 AI 簡報教育訓練公開入口
 
-這是一個純靜態 GitHub Pages 網站，公開三梯六場的完整學習內容與「已開放／尚未開放」狀態。學員免登入；網站不報名、不顯示名單、不驗證資格，也不蒐集個人資料。
+這是一個純靜態 GitHub Pages 網站，公開三梯六場的完整學習內容與「已開放／尚未開放」狀態。學員免登入；網站不報名、不顯示名單、不驗證資格，也不蒐集可識別個資。前後測只送出固定選項、場次與該場隨機匿名代碼至講師私人 Google Sheets。
 
 ## 系統構成
 
 - `docs/`：GitHub Pages 唯一發布目錄。
 - `docs/data/course-catalog.json`：三梯六場的公開課程資料。
 - `docs/data/courses/`：三階完整教學內容，包含 NotebookLM 操作步驟、提示詞、實作、檢核、評量與投影片藍圖。
+- `docs/data/assessments.json`：三階各 10 題前測、10 題後測與 5 題後測滿意度；公開檔不含正解、解析或計分鍵。
 - `docs/cases/expanded-cancer-screening/`：癌症篩檢服務改善的學生操作資料包；內容均為教學用聚合虛構資料。
 - `docs/data/availability.json`：六場的公開開放狀態；預設為 fail-closed。
 - `docs/sessions/session-01/` 至 `session-06/`：六場可由首頁入口直接到達的完整課程頁；同一階的兩場共用同一份教學內容。
-- `docs/assets/course-page.js`：在瀏覽器載入課程內容、複製提示詞、保存本機檢核進度與連結學生操作資料包。
+- `docs/assets/course-page.js`：在瀏覽器載入課程內容、依台北時間開放前後測、匿名送往兩份獨立 Google 表單、複製提示詞、保存本機檢核進度與連結學生操作資料包。
 - `docs/assets/images/hpa-logo.png` 與 `hpa-favicon.ico`：國民健康署官方 Logo 與網站圖示；來源為國健署官方網站。
 - `.github/workflows/deploy-pages.yml`：`main` 有 push 或人工執行時，先驗證再發布。
 - `.github/workflows/manage-availability.yml`：GitHub 登入後以六個 checkbox 完整覆寫開放狀態，留下 commit 紀錄並在同次 workflow 發布。
@@ -40,7 +41,7 @@ npm run validate:initial
 
 `npm run serve` 會在 `http://127.0.0.1:8765/` 啟動本機預覽；按 `Ctrl+C` 停止。
 
-課程頁的檢核進度只保存在該瀏覽器的 `localStorage`，不會送到 GitHub、國民健康署或其他伺服器。頁面不提供自由文字欄位，並持續提醒不得輸入個資、未公開公文、敏感案件或未授權資料。講師教材與答案另外保存在只授權講師帳號的私人 Google Drive，不會由公開網站連結或載入。
+課程頁的檢核進度只保存在該瀏覽器的 `localStorage`。前測於上課前 30 分鐘內開放；後測於下課前 10 分鐘開放，並合併 5 題滿意度。前、後測分別送至兩份 Google 表單，再寫入同一份講師私人 Google Sheets 的不同分頁。送出內容只有場次、課程、該場隨機匿名代碼、固定選項與時間；不含姓名、Email、單位或自由文字。講師教材與答案另外保存在只授權講師帳號的私人 Google Drive，不會由公開網站連結或載入。
 
 `validate:initial` 只用於首次上線檢查「僅 `session-01` 開放」。日後狀態改變後，請用一般 `npm run validate`，或自行指定完整預期清單：
 
@@ -53,6 +54,9 @@ node scripts/validate-site.mjs --expect-open=
 
 - 恰好三梯、每梯兩場、共六場，以及 120 分鐘流程。
 - 六場均有安全、固定且可到達的 `sessions/<session-id>/` 內容頁，頁面 ID 與場次一致。
+- 六場日期與起訖時間正確，前測採 `[上課前 30 分鐘, 上課開始)`、後測採 `[下課前 10 分鐘, 下課時間)`。
+- 三階各有 10 題前測與 10 題後測，後測另有 5 題滿意度；前後測使用不同 Google Forms action。
+- 公開評量資料不得包含正解、解析、能力標籤或計分欄位。
 - 三階內容資料均為有效 JSON，120 分鐘流程、學員 NotebookLM 提示詞、實作、檢核、評量、投影片藍圖與學生操作資料包入口完整。
 - 公開課程不得包含講師提示、答案、修正版標題或其他私密教學欄位，且已移除的講師提示詞檔不得存在。
 - `availability.json` 六個 session 均有明確 boolean，且 `defaultOpen` 固定為 `false`。

@@ -105,9 +105,17 @@
   };
 
   const state = {
+    assessments: null,
+    assessmentRefreshers: [],
+    assessmentSubmissionOverrides: {},
+    assessmentTimer: null,
     course: null,
     courseId: main.dataset.courseId,
+    endTime: main.dataset.endTime,
     sessionId: main.dataset.sessionId,
+    sessionDate: main.dataset.sessionDate,
+    startTime: main.dataset.startTime,
+    timezone: main.dataset.timezone || "Asia/Taipei",
     printDetails: [],
   };
 
@@ -1060,6 +1068,539 @@
     return section;
   }
 
+  function assessmentStorageKey(kind, type) {
+    return `hpa-course-assessment:${kind}:${state.sessionId}:${type}`;
+  }
+
+  function readStoredObject(key) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || "null");
+      return isObject(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStoredObject(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function removeStoredObject(key) {
+    try {
+      localStorage.removeItem(key);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function anonymousSessionId() {
+    const key = `hpa-course-assessment:anonymous-session-id:v1:${state.sessionId}`;
+    try {
+      const existing = localStorage.getItem(key);
+      if (existing) {
+        return existing;
+      }
+      const created =
+        typeof crypto?.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+      localStorage.setItem(key, created);
+      return created;
+    } catch {
+      return `anon-session-${Math.random().toString(36).slice(2, 12)}`;
+    }
+  }
+
+  function sessionTimestamp(time) {
+    const timestamp = Date.parse(`${state.sessionDate}T${time}:00+08:00`);
+    if (!Number.isFinite(timestamp)) {
+      throw new Error("場次日期或時間格式不正確。");
+    }
+    return timestamp;
+  }
+
+  function isLocalPreview() {
+    return ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  }
+
+  function currentAssessmentTime() {
+    if (isLocalPreview()) {
+      const override = new URLSearchParams(window.location.search).get(
+        "assessmentNow",
+      );
+      const timestamp = Date.parse(override || "");
+      if (Number.isFinite(timestamp)) {
+        return timestamp;
+      }
+    }
+    return Date.now();
+  }
+
+  function assessmentWindow(type, now = currentAssessmentTime()) {
+    const timing = state.assessments?.timing?.[type];
+    const start = sessionTimestamp(state.startTime);
+    const end = sessionTimestamp(state.endTime);
+    let opensAt;
+    let closesAt;
+
+    if (type === "pre") {
+      opensAt = start - Number(timing?.openMinutesBeforeStart || 30) * 60_000;
+      closesAt = start;
+    } else if (type === "post") {
+      opensAt = end - Number(timing?.openMinutesBeforeEnd || 10) * 60_000;
+      closesAt = end;
+    } else {
+      throw new Error(`未知評量類型：${type}`);
+    }
+
+    return {
+      status: now < opensAt ? "upcoming" : now >= closesAt ? "closed" : "open",
+      opensAt,
+      closesAt,
+    };
+  }
+
+  function formatAssessmentTime(timestamp) {
+    return new Intl.DateTimeFormat("zh-TW", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: state.timezone,
+    }).format(new Date(timestamp));
+  }
+
+  function readAssessmentDraft(type) {
+    return (
+      readStoredObject(assessmentStorageKey("draft", type)) || {
+        responses: {},
+        satisfaction: {},
+      }
+    );
+  }
+
+  function selectedAssessmentValues(form) {
+    const draft = { responses: {}, satisfaction: {} };
+    form.querySelectorAll('input[type="radio"]:checked').forEach((input) => {
+      const bucket =
+        input.dataset.responseKind === "satisfaction" ? "satisfaction" : "responses";
+      draft[bucket][input.dataset.questionId] = input.value;
+    });
+    return draft;
+  }
+
+  function renderChoiceFieldset({
+    item,
+    index,
+    type,
+    kind,
+    choices,
+    storedValue,
+  }) {
+    const fieldset = createElement("fieldset", {
+      className:
+        kind === "satisfaction"
+          ? "assessment-question satisfaction-question"
+          : "assessment-question",
+      attributes: { "data-question-id": item.id },
+    });
+    fieldset.append(
+      createElement("legend", {
+        text: `${kind === "satisfaction" ? `滿意度 ${index + 1}` : `第 ${index + 1} 題`}｜${item.stem}`,
+      }),
+    );
+    const list = createElement("div", { className: "assessment-options" });
+    choices.forEach((choice, choiceIndex) => {
+      const value =
+        kind === "satisfaction"
+          ? String(choice.value)
+          : String.fromCharCode(65 + choiceIndex);
+      const inputId = `${state.sessionId}-${type}-${safeToken(item.id, "question")}-${value}`;
+      const label = createElement("label", { className: "assessment-option" });
+      const input = createElement("input", {
+        attributes: {
+          id: inputId,
+          type: "radio",
+          name: `${state.sessionId}-${type}-${safeToken(item.id, "question")}`,
+          value,
+          required: "required",
+          "data-question-id": item.id,
+          "data-response-kind": kind,
+        },
+      });
+      input.checked = storedValue === value;
+      const optionText =
+        kind === "satisfaction"
+          ? `${choice.value}｜${choice.label}`
+          : `${value}｜${choice}`;
+      label.append(input, createElement("span", { text: optionText }));
+      list.append(label);
+    });
+    fieldset.append(list);
+    return fieldset;
+  }
+
+  function renderAssessmentForm(type, test, satisfaction, onSubmitted) {
+    const form = createElement("form", {
+      className: "scheduled-assessment-form",
+      attributes: { novalidate: "novalidate" },
+    });
+    const draft = readAssessmentDraft(type);
+    const questions = Array.isArray(test?.questions) ? test.questions : [];
+    const satisfactionQuestions =
+      type === "post" && satisfaction?.appliesTo === "post"
+        ? satisfaction.questions || []
+        : [];
+    const totalGroups = questions.length + satisfactionQuestions.length;
+
+    const quizHeading = createElement("div", { className: "assessment-form-heading" });
+    quizHeading.append(
+      createElement("h4", {
+        text: type === "pre" ? "課前測驗｜10 題" : "課後測驗｜10 題",
+      }),
+      createElement("p", {
+        text: "每題選擇一個答案；本頁不顯示分數或正解。",
+      }),
+    );
+    form.append(quizHeading);
+
+    questions.forEach((question, index) => {
+      form.append(
+        renderChoiceFieldset({
+          item: question,
+          index,
+          type,
+          kind: "responses",
+          choices: question.options || [],
+          storedValue: draft.responses?.[question.id],
+        }),
+      );
+    });
+
+    if (satisfactionQuestions.length) {
+      const surveyHeading = createElement("div", {
+        className: "assessment-form-heading satisfaction-heading",
+      });
+      surveyHeading.append(
+        createElement("p", { className: "section-kicker", text: "Course feedback" }),
+        createElement("h4", { text: "滿意度調查｜5 題" }),
+        createElement("p", {
+          text: "滿意度與本次後測一併送出，不另填第二份問卷。",
+        }),
+      );
+      form.append(surveyHeading);
+      satisfactionQuestions.forEach((question, index) => {
+        form.append(
+          renderChoiceFieldset({
+            item: question,
+            index,
+            type,
+            kind: "satisfaction",
+            choices: satisfaction.scale || [],
+            storedValue: draft.satisfaction?.[question.id],
+          }),
+        );
+      });
+    }
+
+    const actions = createElement("div", { className: "assessment-form-actions" });
+    const progress = createElement("p", {
+      className: "assessment-form-progress",
+      attributes: { role: "status", "aria-live": "polite" },
+    });
+    const submit = createElement("button", {
+      className: "assessment-submit-button",
+      text: type === "pre" ? "送出前測" : "送出後測與滿意度",
+      attributes: { type: "submit" },
+    });
+    actions.append(progress, submit);
+    form.append(actions);
+
+    const updateProgress = () => {
+      const selected = form.querySelectorAll('input[type="radio"]:checked').length;
+      progress.textContent = `已完成 ${selected} / ${totalGroups} 題`;
+    };
+    form.addEventListener("change", () => {
+      writeStoredObject(
+        assessmentStorageKey("draft", type),
+        selectedAssessmentValues(form),
+      );
+      progress.classList.remove("is-error");
+      updateProgress();
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (assessmentWindow(type).status !== "open") {
+        announce("作答時段已結束，未送出資料。");
+        onSubmitted();
+        return;
+      }
+
+      const selected = selectedAssessmentValues(form);
+      if (
+        Object.keys(selected.responses).length !== questions.length ||
+        Object.keys(selected.satisfaction).length !== satisfactionQuestions.length
+      ) {
+        const firstMissingFieldset = [...form.querySelectorAll("fieldset")].find(
+          (fieldset) =>
+            !fieldset.querySelector('input[type="radio"]:checked'),
+        );
+        firstMissingFieldset
+          ?.querySelector('input[type="radio"]')
+          ?.focus();
+        progress.textContent = `尚未完成全部 ${totalGroups} 題，請檢查未作答題目。`;
+        progress.classList.add("is-error");
+        return;
+      }
+
+      const endpoint = state.assessments?.submission?.[type];
+      const payload = {
+        schema: state.assessments?.submission?.payloadSchema,
+        questionVersion: state.assessments?.questionVersion,
+        assessmentType: type,
+        sessionId: state.sessionId,
+        courseId: state.courseId,
+        anonymousSessionId: anonymousSessionId(),
+        responses: questions.map((question) => ({
+          questionId: question.id,
+          selectedOption: selected.responses[question.id],
+        })),
+        satisfaction:
+          type === "post"
+            ? satisfactionQuestions.map((question) => ({
+                questionId: question.id,
+                rating: Number(selected.satisfaction[question.id]),
+              }))
+            : [],
+        previewMode: isLocalPreview(),
+        clientSubmittedAt: new Date().toISOString(),
+        scheduledSession: {
+          date: state.sessionDate,
+          startTime: state.startTime,
+          endTime: state.endTime,
+          timezone: state.timezone,
+        },
+      };
+      const body = new URLSearchParams();
+      body.set(endpoint.fieldName, JSON.stringify(payload));
+
+      submit.disabled = true;
+      submit.textContent = "正在送出…";
+      progress.classList.remove("is-error");
+      progress.textContent = "正送往 Google 表單，請勿關閉頁面。";
+      try {
+        await fetch(endpoint.action, {
+          method: "POST",
+          mode: "no-cors",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body,
+        });
+        const submissionMarker = {
+          requestSentAt: payload.clientSubmittedAt,
+          questionVersion: payload.questionVersion,
+        };
+        state.assessmentSubmissionOverrides[type] = submissionMarker;
+        writeStoredObject(
+          assessmentStorageKey("submitted", type),
+          submissionMarker,
+        );
+        announce(
+          type === "pre"
+            ? "前測送出請求已完成。"
+            : "後測與滿意度送出請求已完成。",
+        );
+        onSubmitted();
+      } catch {
+        submit.disabled = false;
+        submit.textContent = type === "pre" ? "重新送出前測" : "重新送出後測與滿意度";
+        progress.textContent = "目前無法送出；已保留本機作答，請確認網路後再試。";
+        progress.classList.add("is-error");
+      }
+    });
+
+    updateProgress();
+    return form;
+  }
+
+  function renderScheduledAssessmentCard(type, test, satisfaction) {
+    const isPre = type === "pre";
+    const card = createElement("article", {
+      className: "scheduled-assessment-card",
+      attributes: { "data-assessment-type": type },
+    });
+    const header = createElement("header", { className: "scheduled-assessment-header" });
+    header.append(
+      createElement("p", {
+        className: "section-kicker",
+        text: isPre ? "Before class" : "Before dismissal",
+      }),
+      createElement("h3", {
+        text: isPre ? "前測 Google 表單" : "後測 Google 表單＋滿意度",
+      }),
+      createElement("p", {
+        text: isPre
+          ? "上課前 30 分鐘內開放，共 10 題。"
+          : "下課前 10 分鐘開放，共 10 題後測與 5 題滿意度。",
+      }),
+    );
+    const statusBlock = createElement("div", {
+      className: "assessment-window-status",
+      attributes: { role: "status", "aria-live": "polite" },
+    });
+    const body = createElement("div", { className: "scheduled-assessment-body" });
+    card.append(header, statusBlock, body);
+
+    const refresh = () => {
+      const submitted = Object.hasOwn(
+        state.assessmentSubmissionOverrides,
+        type,
+      )
+        ? state.assessmentSubmissionOverrides[type]
+        : readStoredObject(assessmentStorageKey("submitted", type));
+      const windowState = assessmentWindow(type);
+      const renderKey = submitted
+        ? `submitted:${windowState.status}`
+        : windowState.status;
+      if (card.dataset.renderState === renderKey) {
+        return;
+      }
+      card.dataset.renderState = renderKey;
+      statusBlock.className = `assessment-window-status is-${
+        submitted ? "submitted" : windowState.status
+      }`;
+      statusBlock.replaceChildren();
+      body.replaceChildren();
+
+      if (submitted) {
+        statusBlock.append(
+          createElement("strong", { text: "送出請求已完成" }),
+          createElement("p", {
+            text:
+              type === "pre"
+                ? "本頁已將資料送往前測 Google 表單。"
+                : "本頁已將資料送往後測 Google 表單。",
+          }),
+        );
+        body.append(
+          createElement("p", {
+            className: "assessment-complete-note",
+            text:
+              "公開頁面無法直接讀取私人試算表確認入帳，請勿重複送出；如講師確認未收到，可在開放時段內重新送出。",
+          }),
+        );
+        if (windowState.status === "open") {
+          const retryButton = createElement("button", {
+            className: "assessment-retry-button",
+            text: "講師確認未收到時重新送出",
+            attributes: { type: "button" },
+          });
+          retryButton.addEventListener("click", () => {
+            state.assessmentSubmissionOverrides[type] = null;
+            removeStoredObject(assessmentStorageKey("submitted", type));
+            card.dataset.renderState = "";
+            refresh();
+            announce("已恢復原作答；重新送出可能產生重複資料。");
+          });
+          body.append(retryButton);
+        }
+        return;
+      }
+
+      const openTime = formatAssessmentTime(windowState.opensAt);
+      const closeTime = formatAssessmentTime(windowState.closesAt);
+      if (windowState.status === "open") {
+        statusBlock.append(
+          createElement("strong", { text: "現在可填寫" }),
+          createElement("p", { text: `開放至 ${closeTime}` }),
+        );
+        body.append(
+          renderAssessmentForm(type, test, satisfaction, () => {
+            card.dataset.renderState = "";
+            refresh();
+          }),
+        );
+        return;
+      }
+
+      const isUpcoming = windowState.status === "upcoming";
+      statusBlock.append(
+        createElement("strong", {
+          text: isUpcoming ? "尚未開放" : "本次填寫已截止",
+        }),
+        createElement("p", {
+          text: isUpcoming
+            ? `開放時間：${openTime}–${closeTime}`
+            : `本次開放時段：${openTime}–${closeTime}`,
+        }),
+      );
+      body.append(
+        createElement("p", {
+          className: "assessment-locked-note",
+          text: isUpcoming
+            ? "到開放時間後，本頁會自動顯示題目，不需要重新登入。"
+            : "如有特殊狀況，請直接向講師或承辦單位反映。",
+        }),
+      );
+    };
+
+    state.assessmentRefreshers.push(refresh);
+    refresh();
+    return card;
+  }
+
+  function renderScheduledAssessments() {
+    const courseAssessments = state.assessments?.courses?.[state.courseId];
+    if (!courseAssessments) {
+      throw new Error("找不到本階課程的前後測題目。");
+    }
+    const section = createSection(
+      "course-pre-post-tests",
+      "Timed assessment",
+      "前測、後測與滿意度",
+      "依場次時間自動開放；前測與後測使用兩份不同的 Google 表單。",
+    );
+    const privacy = createElement("aside", {
+      className: "assessment-privacy-note",
+      attributes: { role: "note" },
+    });
+    privacy.append(
+      createElement("strong", { text: "匿名作答與資料去向" }),
+      createElement("p", {
+        text: "只傳送場次、隨機匿名代碼、固定選項與送出時間至講師私人 Google Sheets；不收集姓名、Email、單位或自由文字，也不在公開網站保存正解。",
+      }),
+      createElement("p", {
+        text: "開放時段是瀏覽器介面控制，不是身分驗證或安全存取限制。",
+      }),
+    );
+    const grid = createElement("div", { className: "scheduled-assessment-grid" });
+    grid.append(
+      renderScheduledAssessmentCard(
+        "pre",
+        courseAssessments.pre,
+        state.assessments.satisfaction,
+      ),
+      renderScheduledAssessmentCard(
+        "post",
+        courseAssessments.post,
+        state.assessments.satisfaction,
+      ),
+    );
+    section.append(privacy, grid);
+    return section;
+  }
+
   function renderAssessment(course) {
     const section = createSection(
       "course-assessment",
@@ -1224,6 +1765,7 @@
 
   function renderCourse(course) {
     state.course = course;
+    state.assessmentRefreshers = [];
     const declaredId = firstText(course.id, course.meta?.id);
     if (declaredId && declaredId !== state.courseId) {
       throw new Error("課程資料與本頁識別碼不一致。");
@@ -1231,6 +1773,7 @@
 
     const sections = [
       renderOverview(course),
+      renderScheduledAssessments(),
       renderTimeline(course),
       renderWorkflow(course),
       renderPrompts(course),
@@ -1263,6 +1806,13 @@
         copyPrompt(button.dataset.copyTarget, button);
       }
     });
+
+    if (state.assessmentTimer) {
+      window.clearInterval(state.assessmentTimer);
+    }
+    state.assessmentTimer = window.setInterval(() => {
+      state.assessmentRefreshers.forEach((refresh) => refresh());
+    }, 30_000);
   }
 
   function renderError(message) {
@@ -1287,22 +1837,47 @@
 
   async function initialize() {
     const source = root.dataset.courseSrc;
+    const assessmentSource = root.dataset.assessmentSrc;
     if (
       !source ||
       !/^\.\.\/\.\.\/data\/courses\/ai-deck-[0-9]{2}\.json$/.test(source)
     ) {
       throw new Error("課程資料路徑不正確。");
     }
-    const response = await fetch(source, {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(`課程資料回應 ${response.status}`);
+    if (
+      !assessmentSource ||
+      assessmentSource !== "../../data/assessments.json"
+    ) {
+      throw new Error("評量資料路徑不正確。");
     }
-    const course = await response.json();
+
+    const [courseResponse, assessmentResponse] = await Promise.all(
+      [source, assessmentSource].map((path) =>
+        fetch(path, {
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+        }),
+      ),
+    );
+    if (!courseResponse.ok) {
+      throw new Error(`課程資料回應 ${courseResponse.status}`);
+    }
+    if (!assessmentResponse.ok) {
+      throw new Error(`評量資料回應 ${assessmentResponse.status}`);
+    }
+    const [course, assessments] = await Promise.all([
+      courseResponse.json(),
+      assessmentResponse.json(),
+    ]);
+    state.assessments = assessments;
     renderCourse(course);
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      state.assessmentRefreshers.forEach((refresh) => refresh());
+    }
+  });
 
   window.addEventListener("beforeprint", () => {
     state.printDetails = [...document.querySelectorAll("details:not([open])")];

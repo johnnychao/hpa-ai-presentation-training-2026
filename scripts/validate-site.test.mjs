@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assessmentWindowStatus,
   auditHtml,
   auditSessionPageIdentity,
   classifyRepositoryPath,
@@ -10,6 +11,7 @@ import {
   parseBooleanInput,
   parseExpectedOpenSpec,
   validateAvailability,
+  validateAssessments,
   validateCatalog,
   validateCourseContent,
 } from "./site-lib.mjs";
@@ -20,6 +22,7 @@ function fixtureCatalog() {
     series: {
       id: "fixture",
       title: "測試課程",
+      timezone: "Asia/Taipei",
       sessionDurationMinutes: 120,
     },
     sessionFlow: {
@@ -34,6 +37,7 @@ function fixtureCatalog() {
     },
     cohorts: Array.from({ length: 3 }, (_, cohortIndex) => ({
       id: `cohort-${String(cohortIndex + 1).padStart(2, "0")}`,
+      courseId: `ai-deck-${String(cohortIndex + 1).padStart(2, "0")}`,
       sequence: cohortIndex + 1,
       sessions: Array.from({ length: 2 }, (_, sessionIndex) => {
         const sequence = cohortIndex * 2 + sessionIndex + 1;
@@ -47,6 +51,70 @@ function fixtureCatalog() {
         };
       }),
     })),
+  };
+}
+
+function fixtureAssessments() {
+  const createQuestions = (courseIndex, type) =>
+    Array.from({ length: 10 }, (_, questionIndex) => ({
+      id: `c${courseIndex}_${type}_${String(questionIndex + 1).padStart(2, "0")}`,
+      stem: `第 ${courseIndex} 階 ${type} 第 ${questionIndex + 1} 題`,
+      options: ["選項 A", "選項 B", "選項 C", "選項 D"],
+    }));
+
+  return {
+    schemaVersion: "1.0.0",
+    questionVersion: "2026-07-24",
+    timezone: "Asia/Taipei",
+    timing: {
+      pre: {
+        openMinutesBeforeStart: 30,
+        closeAt: "start",
+      },
+      post: {
+        openMinutesBeforeEnd: 10,
+        closeAt: "end",
+      },
+    },
+    submission: {
+      payloadSchema: "hpa-assessment-response-v1",
+      pre: {
+        provider: "google-forms",
+        action:
+          "https://docs.google.com/forms/d/e/1FAIpQLSfPreForm123/formResponse",
+        fieldName: "entry.123456789",
+      },
+      post: {
+        provider: "google-forms",
+        action:
+          "https://docs.google.com/forms/d/e/1FAIpQLSfPostForm456/formResponse",
+        fieldName: "entry.987654321",
+      },
+    },
+    satisfaction: {
+      appliesTo: "post",
+      scale: Array.from({ length: 5 }, (_, index) => ({
+        value: index + 1,
+        label: `${index + 1} 分`,
+      })),
+      questions: Array.from({ length: 5 }, (_, index) => ({
+        id: `satisfaction_${String(index + 1).padStart(2, "0")}`,
+        stem: `滿意度第 ${index + 1} 題`,
+      })),
+    },
+    courses: Object.fromEntries(
+      Array.from({ length: 3 }, (_, index) => {
+        const courseIndex = index + 1;
+        const courseId = `ai-deck-${String(courseIndex).padStart(2, "0")}`;
+        return [
+          courseId,
+          {
+            pre: { questions: createQuestions(courseIndex, "pre") },
+            post: { questions: createQuestions(courseIndex, "post") },
+          },
+        ];
+      }),
+    ),
   };
 }
 
@@ -92,7 +160,17 @@ test("environment snapshot requires all six checkbox values", () => {
 });
 
 test("catalog contract is exactly three cohorts and six sessions", () => {
-  assert.deepEqual(validateCatalog(fixtureCatalog()).errors, []);
+  const valid = validateCatalog(fixtureCatalog());
+  assert.deepEqual(valid.errors, []);
+  assert.deepEqual(valid.sessionPages[0], {
+    id: "session-01",
+    courseId: "ai-deck-01",
+    date: "2026-07-10",
+    startTime: "10:00",
+    endTime: "12:00",
+    timezone: "Asia/Taipei",
+    contentPath: "sessions/session-01/",
+  });
   const invalid = fixtureCatalog();
   invalid.cohorts.pop();
   assert.match(validateCatalog(invalid).errors.join("\n"), /3 梯|6 場/);
@@ -100,6 +178,129 @@ test("catalog contract is exactly three cohorts and six sessions", () => {
   const unsafePath = fixtureCatalog();
   unsafePath.cohorts[0].sessions[0].contentPath = "../internal/";
   assert.match(validateCatalog(unsafePath).errors.join("\n"), /contentPath/);
+
+  const wrongCourse = fixtureCatalog();
+  wrongCourse.cohorts[0].courseId = "ai-deck-03";
+  assert.match(validateCatalog(wrongCourse).errors.join("\n"), /courseId.*ai-deck-01/);
+
+  const wrongDuration = fixtureCatalog();
+  wrongDuration.cohorts[0].sessions[0].endTime = "11:59";
+  assert.match(validateCatalog(wrongDuration).errors.join("\n"), /120 分鐘/);
+});
+
+test("assessment windows use Taipei time and half-open boundaries", () => {
+  const session = {
+    date: "2026-07-24",
+    startTime: "10:00",
+    endTime: "12:00",
+  };
+
+  assert.equal(
+    assessmentWindowStatus({
+      ...session,
+      type: "pre",
+      now: "2026-07-24T09:29:59+08:00",
+    }).status,
+    "upcoming",
+  );
+  assert.equal(
+    assessmentWindowStatus({
+      ...session,
+      type: "pre",
+      now: "2026-07-24T09:30:00+08:00",
+    }).status,
+    "open",
+  );
+  assert.equal(
+    assessmentWindowStatus({
+      ...session,
+      type: "pre",
+      now: "2026-07-24T10:00:00+08:00",
+    }).status,
+    "closed",
+  );
+  assert.equal(
+    assessmentWindowStatus({
+      ...session,
+      type: "post",
+      now: "2026-07-24T11:49:59+08:00",
+    }).status,
+    "upcoming",
+  );
+  assert.equal(
+    assessmentWindowStatus({
+      ...session,
+      type: "post",
+      now: "2026-07-24T11:50:00+08:00",
+    }).status,
+    "open",
+  );
+  assert.equal(
+    assessmentWindowStatus({
+      ...session,
+      type: "post",
+      now: "2026-07-24T12:00:00+08:00",
+    }).status,
+    "closed",
+  );
+});
+
+test("assessments require separate pre/post forms and five satisfaction items", () => {
+  const valid = validateAssessments(fixtureAssessments());
+  assert.deepEqual(valid.errors, []);
+  assert.equal(valid.questionCount, 60);
+  assert.equal(valid.satisfactionQuestionCount, 5);
+
+  const sharedForm = fixtureAssessments();
+  sharedForm.submission.post.action = sharedForm.submission.pre.action;
+  assert.match(
+    validateAssessments(sharedForm).errors.join("\n"),
+    /前測與後測必須使用不同/,
+  );
+
+  const missingSatisfactionItem = fixtureAssessments();
+  missingSatisfactionItem.satisfaction.questions.pop();
+  assert.match(
+    validateAssessments(missingSatisfactionItem).errors.join("\n"),
+    /satisfaction\.questions.*5 題/,
+  );
+
+  const missingPayloadSchema = fixtureAssessments();
+  delete missingPayloadSchema.submission.payloadSchema;
+  assert.match(
+    validateAssessments(missingPayloadSchema).errors.join("\n"),
+    /submission\.payloadSchema.*非空白字串/,
+  );
+
+  const wrongProvider = fixtureAssessments();
+  wrongProvider.submission.post.provider = "other-provider";
+  assert.match(
+    validateAssessments(wrongProvider).errors.join("\n"),
+    /submission\.post\.provider.*google-forms/,
+  );
+});
+
+test("public assessments reject answer fields and non-public question metadata", () => {
+  const withAnswer = fixtureAssessments();
+  withAnswer.courses["ai-deck-01"].pre.questions[0].answer = "A";
+  assert.match(
+    validateAssessments(withAnswer).errors.join("\n"),
+    /答案或計分欄位/,
+  );
+
+  const withRationale = fixtureAssessments();
+  withRationale.courses["ai-deck-02"].post.questions[0].rationale = "解析";
+  assert.match(
+    validateAssessments(withRationale).errors.join("\n"),
+    /答案或計分欄位/,
+  );
+
+  const withCompetency = fixtureAssessments();
+  withCompetency.courses["ai-deck-03"].pre.questions[0].competency = "來源判讀";
+  assert.match(
+    validateAssessments(withCompetency).errors.join("\n"),
+    /只能包含 id、stem 與 options/,
+  );
 });
 
 test("availability verifies a complete expected-open snapshot", () => {
@@ -277,5 +478,28 @@ test("session content page declares the route-matching session id", () => {
   assert.match(
     auditSessionPageIdentity(valid, "session-02").join("\n"),
     /data-session-id="session-02"/,
+  );
+
+  const fullSession = {
+    id: "session-01",
+    courseId: "ai-deck-01",
+    date: "2026-07-24",
+    startTime: "10:00",
+    endTime: "12:00",
+    timezone: "Asia/Taipei",
+  };
+  const complete = `<!doctype html><html lang="zh-Hant"><body>
+    <main id="main-content"
+      data-session-id="session-01"
+      data-course-id="ai-deck-01"
+      data-session-date="2026-07-24"
+      data-start-time="10:00"
+      data-end-time="12:00"
+      data-timezone="Asia/Taipei"><h1>第一場</h1></main>
+  </body></html>`;
+  assert.deepEqual(auditSessionPageIdentity(complete, fullSession), []);
+  assert.match(
+    auditSessionPageIdentity(valid, fullSession).join("\n"),
+    /data-course-id="ai-deck-01"/,
   );
 });

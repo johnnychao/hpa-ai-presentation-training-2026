@@ -74,7 +74,7 @@ function formatDate(dateValue) {
   };
 }
 
-function renderPage({ cohort, session, course, courseId }) {
+function renderPage({ cohort, session, course, courseId, timezone }) {
   const meta = course && typeof course.meta === "object" ? course.meta : {};
   const topicTitle = textValue(meta.title);
   const seriesTitle = textValue(meta.subtitle);
@@ -96,6 +96,7 @@ function renderPage({ cohort, session, course, courseId }) {
   const endTime = textValue(session.endTime, "12:00");
   const description = `${cohortLabel}${sessionLabel}：${title}，完整課程內容與實作工具。`;
   const courseSource = `../../data/courses/${courseId}.json`;
+  const assessmentSource = "../../data/assessments.json";
 
   return `<!doctype html>
 <html lang="zh-Hant">
@@ -132,6 +133,10 @@ function renderPage({ cohort, session, course, courseId }) {
       tabindex="-1"
       data-session-id="${escapeHtml(session.id)}"
       data-course-id="${escapeHtml(courseId)}"
+      data-session-date="${escapeHtml(session.date)}"
+      data-start-time="${escapeHtml(startTime)}"
+      data-end-time="${escapeHtml(endTime)}"
+      data-timezone="${escapeHtml(timezone)}"
     >
       <section class="session-page-hero course-page-hero" aria-labelledby="session-title">
         <div class="shell session-page-hero-layout">
@@ -157,6 +162,7 @@ function renderPage({ cohort, session, course, courseId }) {
             id="course-page-root"
             class="course-page-root"
             data-course-src="${escapeHtml(courseSource)}"
+            data-assessment-src="${escapeHtml(assessmentSource)}"
             aria-busy="true"
           >
             <div class="course-page-loading" role="status">
@@ -225,7 +231,13 @@ async function main() {
 
       const outputDirectory = path.join(sessionsDirectory, session.id);
       const outputPath = path.join(outputDirectory, "index.html");
-      const html = renderPage({ cohort, session, course, courseId });
+      const html = renderPage({
+        cohort,
+        session,
+        course,
+        courseId,
+        timezone: catalog?.series?.timezone || "Asia/Taipei",
+      });
       await fs.mkdir(outputDirectory, { recursive: true });
       await fs.writeFile(outputPath, html, "utf8");
       generatedCount += 1;
