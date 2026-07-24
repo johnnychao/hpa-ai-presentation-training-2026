@@ -29,6 +29,31 @@ export const COURSE_CONTENT_SPECS = Object.freeze([
   }),
 ]);
 
+export const ASSESSMENT_COURSE_IDS = Object.freeze([
+  "ai-deck-01",
+  "ai-deck-02",
+  "ai-deck-03",
+]);
+
+const ASIA_TAIPEI_TIMEZONE = "Asia/Taipei";
+const ASIA_TAIPEI_OFFSET = "+08:00";
+const FORBIDDEN_ASSESSMENT_FIELD_KEYS = new Set([
+  "answer",
+  "answers",
+  "answerkey",
+  "correct",
+  "correctanswer",
+  "correctanswers",
+  "correctoption",
+  "explanation",
+  "feedback",
+  "iscorrect",
+  "maxpoints",
+  "points",
+  "rationale",
+  "score",
+]);
+
 export const FORBIDDEN_PUBLIC_PHRASES = Object.freeze([
   "簡報修改次數極大化",
   "修改次數極大化",
@@ -186,6 +211,9 @@ export function validateCatalog(catalog) {
   if (catalog?.series?.sessionDurationMinutes !== 120) {
     errors.push("series.sessionDurationMinutes 必須是 120");
   }
+  if (catalog?.series?.timezone !== ASIA_TAIPEI_TIMEZONE) {
+    errors.push(`series.timezone 必須是 ${ASIA_TAIPEI_TIMEZONE}`);
+  }
   if (cohorts.length !== 3) {
     errors.push(`cohorts 必須恰好有 3 梯，目前為 ${cohorts.length}`);
   }
@@ -207,8 +235,12 @@ export function validateCatalog(catalog) {
   const sessions = [];
   cohorts.forEach((cohort, cohortIndex) => {
     const expectedCohortId = `cohort-${String(cohortIndex + 1).padStart(2, "0")}`;
+    const expectedCourseId = ASSESSMENT_COURSE_IDS[cohortIndex];
     if (cohort?.id !== expectedCohortId) {
       errors.push(`第 ${cohortIndex + 1} 梯 id 必須是 ${expectedCohortId}`);
+    }
+    if (cohort?.courseId !== expectedCourseId) {
+      errors.push(`第 ${cohortIndex + 1} 梯 courseId 必須是 ${expectedCourseId}`);
     }
     if (cohortIds.has(cohort?.id)) {
       errors.push(`梯次 id 重複：${cohort?.id}`);
@@ -246,6 +278,14 @@ export function validateCatalog(catalog) {
     }
     if (!isValidTime(session?.startTime) || !isValidTime(session?.endTime)) {
       errors.push(`${expectedId} 的 startTime/endTime 必須是有效 HH:MM`);
+    } else {
+      const durationMinutes =
+        timeToMinutes(session.endTime) - timeToMinutes(session.startTime);
+      if (durationMinutes !== 120) {
+        errors.push(
+          `${expectedId} 的 startTime/endTime 必須相差 120 分鐘，目前為 ${durationMinutes}`,
+        );
+      }
     }
     if (session?.contentPath !== expectedContentPath) {
       errors.push(`${expectedId} 的 contentPath 必須是 ${expectedContentPath}`);
@@ -266,8 +306,65 @@ export function validateCatalog(catalog) {
     cohortCount: cohorts.length,
     sessionPages: sessions.map((session) => ({
       id: session?.id,
+      courseId: cohorts.find((cohort) =>
+        Array.isArray(cohort?.sessions) &&
+        cohort.sessions.some((candidate) => candidate === session),
+      )?.courseId,
+      date: session?.date,
+      startTime: session?.startTime,
+      endTime: session?.endTime,
+      timezone: catalog?.series?.timezone,
       contentPath: session?.contentPath,
     })),
+  };
+}
+
+export function assessmentWindowStatus({
+  date,
+  startTime,
+  endTime,
+  type,
+  now,
+}) {
+  if (!isValidIsoDate(date)) {
+    throw new Error("date 必須是有效 YYYY-MM-DD 日期");
+  }
+  if (!isValidTime(startTime) || !isValidTime(endTime)) {
+    throw new Error("startTime/endTime 必須是有效 HH:MM");
+  }
+  if (!["pre", "post"].includes(type)) {
+    throw new Error('type 必須是 "pre" 或 "post"');
+  }
+
+  const start = new Date(`${date}T${startTime}:00${ASIA_TAIPEI_OFFSET}`);
+  const end = new Date(`${date}T${endTime}:00${ASIA_TAIPEI_OFFSET}`);
+  if (end.getTime() <= start.getTime()) {
+    throw new Error("endTime 必須晚於 startTime");
+  }
+
+  const current = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+  if (!Number.isFinite(current.getTime())) {
+    throw new Error("now 必須是有效日期時間");
+  }
+
+  const open =
+    type === "pre"
+      ? new Date(start.getTime() - 30 * 60 * 1000)
+      : new Date(end.getTime() - 10 * 60 * 1000);
+  const close = type === "pre" ? start : end;
+  const currentTime = current.getTime();
+  const status =
+    currentTime < open.getTime()
+      ? "upcoming"
+      : currentTime < close.getTime()
+        ? "open"
+        : "closed";
+
+  return {
+    status,
+    isOpen: status === "open",
+    opensAt: open.toISOString(),
+    closesAt: close.toISOString(),
   };
 }
 
@@ -329,9 +426,257 @@ export function validateAvailability(
   return { errors, openIds };
 }
 
+export function validateAssessments(assessments) {
+  const errors = [];
+  const formActionPattern =
+    /^https:\/\/docs\.google\.com\/forms\/d\/e\/[^/?#\s]+\/formResponse$/;
+  const fieldNamePattern = /^entry\.\d+$/;
+
+  if (!isPlainObject(assessments)) {
+    return { errors: ["assessments.json 頂層必須是物件"] };
+  }
+
+  function rejectAnswerFields(value, fieldPath) {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) =>
+        rejectAnswerFields(item, `${fieldPath}[${index}]`),
+      );
+      return;
+    }
+    if (!isPlainObject(value)) {
+      return;
+    }
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const normalizedKey = key.toLocaleLowerCase("en-US").replace(/[-_\s]/g, "");
+      const nestedPath = `${fieldPath}.${key}`;
+      if (FORBIDDEN_ASSESSMENT_FIELD_KEYS.has(normalizedKey)) {
+        errors.push(`${nestedPath} 是答案或計分欄位，不得出現在公開 assessments.json`);
+      }
+      rejectAnswerFields(nestedValue, nestedPath);
+    }
+  }
+  rejectAnswerFields(assessments, "assessments");
+
+  if (assessments.schemaVersion !== "1.0.0") {
+    errors.push('assessments.schemaVersion 必須是 "1.0.0"');
+  }
+  if (
+    typeof assessments.questionVersion !== "string" ||
+    !assessments.questionVersion.trim()
+  ) {
+    errors.push("assessments.questionVersion 必須是非空白字串");
+  }
+  if (assessments.timezone !== ASIA_TAIPEI_TIMEZONE) {
+    errors.push(`assessments.timezone 必須是 ${ASIA_TAIPEI_TIMEZONE}`);
+  }
+
+  const preTiming = assessments?.timing?.pre;
+  const postTiming = assessments?.timing?.post;
+  if (
+    !isPlainObject(preTiming) ||
+    preTiming.openMinutesBeforeStart !== 30 ||
+    preTiming.closeAt !== "start"
+  ) {
+    errors.push(
+      'assessments.timing.pre 必須設定 openMinutesBeforeStart=30、closeAt="start"',
+    );
+  }
+  if (
+    !isPlainObject(postTiming) ||
+    postTiming.openMinutesBeforeEnd !== 10 ||
+    postTiming.closeAt !== "end"
+  ) {
+    errors.push(
+      'assessments.timing.post 必須設定 openMinutesBeforeEnd=10、closeAt="end"',
+    );
+  }
+
+  const submission = assessments.submission;
+  const submissionEntries = {};
+  if (!isPlainObject(submission)) {
+    errors.push("assessments.submission 必須是物件");
+  }
+  if (
+    typeof submission?.payloadSchema !== "string" ||
+    !submission.payloadSchema.trim()
+  ) {
+    errors.push("assessments.submission.payloadSchema 必須是非空白字串");
+  }
+  for (const type of ["pre", "post"]) {
+    const configuration = submission?.[type];
+    submissionEntries[type] = configuration;
+    if (!isPlainObject(configuration)) {
+      errors.push(`assessments.submission.${type} 必須是物件`);
+      continue;
+    }
+    if (configuration.provider !== "google-forms") {
+      errors.push(
+        `assessments.submission.${type}.provider 必須是 "google-forms"`,
+      );
+    }
+    if (!formActionPattern.test(configuration.action || "")) {
+      errors.push(
+        `assessments.submission.${type}.action 必須是公開 Google Forms formResponse 網址`,
+      );
+    }
+    if (!fieldNamePattern.test(configuration.fieldName || "")) {
+      errors.push(
+        `assessments.submission.${type}.fieldName 必須符合 entry.<digits>`,
+      );
+    }
+  }
+  if (
+    submissionEntries.pre?.action &&
+    submissionEntries.pre.action === submissionEntries.post?.action
+  ) {
+    errors.push("前測與後測必須使用不同的 Google Forms action");
+  }
+
+  const satisfaction = assessments.satisfaction;
+  if (!isPlainObject(satisfaction)) {
+    errors.push("assessments.satisfaction 必須是物件");
+  } else {
+    if (satisfaction.appliesTo !== "post") {
+      errors.push('assessments.satisfaction.appliesTo 必須是 "post"');
+    }
+    const scale = Array.isArray(satisfaction.scale) ? satisfaction.scale : [];
+    if (scale.length !== 5) {
+      errors.push(`assessments.satisfaction.scale 必須恰好有 5 筆，目前為 ${scale.length}`);
+    }
+    scale.forEach((item, index) => {
+      if (
+        !isPlainObject(item) ||
+        item.value !== index + 1 ||
+        typeof item.label !== "string" ||
+        !item.label.trim()
+      ) {
+        errors.push(
+          `assessments.satisfaction.scale[${index}] 必須有 value=${index + 1} 與非空白 label`,
+        );
+      }
+    });
+
+    const questions = Array.isArray(satisfaction.questions)
+      ? satisfaction.questions
+      : [];
+    if (questions.length !== 5) {
+      errors.push(
+        `assessments.satisfaction.questions 必須恰好有 5 題，目前為 ${questions.length}`,
+      );
+    }
+    const satisfactionIds = new Set();
+    questions.forEach((question, index) => {
+      const prefix = `assessments.satisfaction.questions[${index}]`;
+      if (!isPlainObject(question)) {
+        errors.push(`${prefix} 必須是物件`);
+        return;
+      }
+      const keys = Object.keys(question).sort();
+      if (keys.length !== 2 || keys[0] !== "id" || keys[1] !== "stem") {
+        errors.push(`${prefix} 只能包含 id 與 stem`);
+      }
+      if (typeof question.id !== "string" || !question.id.trim()) {
+        errors.push(`${prefix}.id 必須是非空白字串`);
+      } else if (satisfactionIds.has(question.id)) {
+        errors.push(`${prefix}.id 重複：${question.id}`);
+      } else {
+        satisfactionIds.add(question.id);
+      }
+      if (typeof question.stem !== "string" || !question.stem.trim()) {
+        errors.push(`${prefix}.stem 必須是非空白字串`);
+      }
+    });
+  }
+
+  const courses = isPlainObject(assessments.courses) ? assessments.courses : {};
+  const courseIds = Object.keys(courses).sort();
+  if (
+    courseIds.length !== ASSESSMENT_COURSE_IDS.length ||
+    courseIds.some((courseId, index) => courseId !== ASSESSMENT_COURSE_IDS[index])
+  ) {
+    errors.push(
+      `assessments.courses 必須且只能包含 ${ASSESSMENT_COURSE_IDS.join(", ")}`,
+    );
+  }
+
+  const questionIds = new Set();
+  for (const courseId of ASSESSMENT_COURSE_IDS) {
+    const course = courses[courseId];
+    if (!isPlainObject(course)) {
+      errors.push(`assessments.courses.${courseId} 必須是物件`);
+      continue;
+    }
+    for (const type of ["pre", "post"]) {
+      const questions = Array.isArray(course?.[type]?.questions)
+        ? course[type].questions
+        : [];
+      const prefix = `assessments.courses.${courseId}.${type}.questions`;
+      if (questions.length !== 10) {
+        errors.push(`${prefix} 必須恰好有 10 題，目前為 ${questions.length}`);
+      }
+      questions.forEach((question, index) => {
+        const questionPath = `${prefix}[${index}]`;
+        if (!isPlainObject(question)) {
+          errors.push(`${questionPath} 必須是物件`);
+          return;
+        }
+        const keys = Object.keys(question).sort();
+        if (
+          keys.length !== 3 ||
+          keys[0] !== "id" ||
+          keys[1] !== "options" ||
+          keys[2] !== "stem"
+        ) {
+          errors.push(`${questionPath} 只能包含 id、stem 與 options`);
+        }
+        if (typeof question.id !== "string" || !question.id.trim()) {
+          errors.push(`${questionPath}.id 必須是非空白字串`);
+        } else if (questionIds.has(question.id)) {
+          errors.push(`${questionPath}.id 重複：${question.id}`);
+        } else {
+          questionIds.add(question.id);
+        }
+        if (typeof question.stem !== "string" || !question.stem.trim()) {
+          errors.push(`${questionPath}.stem 必須是非空白字串`);
+        }
+        if (
+          !Array.isArray(question.options) ||
+          question.options.length !== 4 ||
+          question.options.some(
+            (option) => typeof option !== "string" || !option.trim(),
+          )
+        ) {
+          errors.push(`${questionPath}.options 必須恰好有 4 個非空白選項`);
+        }
+      });
+    }
+  }
+
+  return {
+    errors,
+    courseCount: courseIds.length,
+    questionCount: questionIds.size,
+    satisfactionQuestionCount: Array.isArray(satisfaction?.questions)
+      ? satisfaction.questions.length
+      : 0,
+  };
+}
+
 export function validateCourseContent(course, spec) {
   const errors = [];
   const prefix = spec?.id || "course";
+  const privateKeys = new Set([
+    "instructor",
+    "speakerCue",
+    "speakerNote",
+    "feedbackPhrases",
+    "referenceMiniOutline",
+    "intentionalErrors",
+    "correctedTitle",
+    "decisionSentence",
+    "recommendation",
+    "answer",
+  ]);
   const requiredArrays = [
     ["audience", 1],
     ["prerequisites", 1],
@@ -349,6 +694,27 @@ export function validateCourseContent(course, spec) {
   if (!isPlainObject(course)) {
     return { errors: [`${prefix} 頂層必須是物件`] };
   }
+
+  function rejectPrivateFields(value, pathPrefix) {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) =>
+        rejectPrivateFields(item, `${pathPrefix}[${index}]`),
+      );
+      return;
+    }
+    if (!isPlainObject(value)) {
+      return;
+    }
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const fieldPath = `${pathPrefix}.${key}`;
+      if (privateKeys.has(key)) {
+        errors.push(`${fieldPath} 是講師私密欄位，不得出現在公開課程`);
+      }
+      rejectPrivateFields(nestedValue, fieldPath);
+    }
+  }
+  rejectPrivateFields(course, prefix);
+
   if (course.id !== spec?.id) {
     errors.push(`${prefix}.id 必須是 ${spec?.id}`);
   }
@@ -446,8 +812,30 @@ export function validateCourseContent(course, spec) {
   } else if (!JSON.stringify(course.caseStudy).includes("虛構")) {
     errors.push(`${prefix}.caseStudy 必須明示為教學虛構`);
   }
-  if (!isPlainObject(course.instructor)) {
-    errors.push(`${prefix}.instructor 必須是物件`);
+  if (!isPlainObject(course.casePack)) {
+    errors.push(`${prefix}.casePack 必須是物件`);
+  } else {
+    if (course.casePack.isFictional !== true) {
+      errors.push(`${prefix}.casePack.isFictional 必須是 true`);
+    }
+    if (!String(course.casePack.notice || "").includes("虛構")) {
+      errors.push(`${prefix}.casePack.notice 必須明示為教學虛構`);
+    }
+    const expectedStage = `stage-${spec?.stage}`;
+    if (course.casePack.stageId !== expectedStage) {
+      errors.push(`${prefix}.casePack.stageId 必須是 ${expectedStage}`);
+    }
+    const expectedEntryPath =
+      `../../cases/expanded-cancer-screening/index.html#${expectedStage}`;
+    if (course.casePack.entryPath !== expectedEntryPath) {
+      errors.push(`${prefix}.casePack.entryPath 必須是 ${expectedEntryPath}`);
+    }
+    if (
+      !Array.isArray(course.casePack.suggestedFiles) ||
+      course.casePack.suggestedFiles.length < 1
+    ) {
+      errors.push(`${prefix}.casePack.suggestedFiles 必須至少有 1 筆`);
+    }
   }
   const assessment = Array.isArray(course.assessment) ? course.assessment : [];
   const assessmentTotal = assessment.reduce(
@@ -481,54 +869,6 @@ export function validateCourseContent(course, spec) {
   return { errors };
 }
 
-export function validateInstructorPrompts(library, courseSpecs = COURSE_CONTENT_SPECS) {
-  const errors = [];
-  if (!isPlainObject(library)) {
-    return { errors: ["instructor-prompts.json 頂層必須是物件"], promptCount: 0 };
-  }
-
-  const common = Array.isArray(library.common) ? library.common : [];
-  const courses = isPlainObject(library.courses) ? library.courses : {};
-  if (common.length !== 5) {
-    errors.push(`instructor-prompts.common 必須恰好有 5 筆，目前為 ${common.length}`);
-  }
-
-  const allPrompts = [...common];
-  for (const spec of courseSpecs) {
-    const prompts = Array.isArray(courses[spec.id]) ? courses[spec.id] : [];
-    if (prompts.length !== 2) {
-      errors.push(
-        `instructor-prompts.courses.${spec.id} 必須恰好有 2 筆，目前為 ${prompts.length}`,
-      );
-    }
-    allPrompts.push(...prompts);
-  }
-
-  const ids = new Set();
-  allPrompts.forEach((prompt, index) => {
-    const label = `instructor-prompts[${index}]`;
-    if (!isPlainObject(prompt)) {
-      errors.push(`${label} 必須是物件`);
-      return;
-    }
-    if (typeof prompt.id !== "string" || !prompt.id.trim()) {
-      errors.push(`${label}.id 必須是非空字串`);
-    } else if (ids.has(prompt.id)) {
-      errors.push(`${label}.id 重複：${prompt.id}`);
-    } else {
-      ids.add(prompt.id);
-    }
-    if (typeof prompt.title !== "string" || !prompt.title.trim()) {
-      errors.push(`${label}.title 必須是非空字串`);
-    }
-    if (typeof prompt.text !== "string" || prompt.text.trim().length < 40) {
-      errors.push(`${label}.text 必須是可實際使用的完整提示詞`);
-    }
-  });
-
-  return { errors, promptCount: allPrompts.length };
-}
-
 export function normalizePublicText(value) {
   return String(value)
     .normalize("NFKC")
@@ -551,7 +891,10 @@ export function classifyRepositoryPath(relativePath) {
   if (parts.some((part) => part === ".env" || part.startsWith(".env."))) {
     findings.push("環境變數檔不得進入公開 repo");
   }
-  if (BLOCKED_PUBLIC_EXTENSIONS.has(extension)) {
+  const isApprovedSyntheticCaseCsv =
+    extension === ".csv" &&
+    lower.startsWith("docs/cases/expanded-cancer-screening/");
+  if (BLOCKED_PUBLIC_EXTENSIONS.has(extension) && !isApprovedSyntheticCaseCsv) {
     findings.push(`禁止公開的副檔名 ${extension}`);
   }
   const sensitiveTerm = SENSITIVE_FILENAME_TERMS.find((term) => lower.includes(term));
@@ -640,16 +983,40 @@ export function auditHtml(html, fileLabel = "index.html") {
   return { errors, references };
 }
 
-export function auditSessionPageIdentity(html, sessionId, fileLabel = "session page") {
+export function auditSessionPageIdentity(
+  html,
+  sessionOrId,
+  fileLabel = "session page",
+) {
   const errors = [];
   const mainTag = html.match(/<main\b[^>]*>/i)?.[0] || "";
-  const expectedAttribute = new RegExp(
-    `\\bdata-session-id\\s*=\\s*(["'])${escapeRegularExpression(sessionId)}\\1`,
-    "i",
-  );
+  const expected =
+    typeof sessionOrId === "string"
+      ? { id: sessionOrId }
+      : isPlainObject(sessionOrId)
+        ? sessionOrId
+        : {};
+  const attributes = [
+    ["id", "data-session-id"],
+    ["courseId", "data-course-id"],
+    ["date", "data-session-date"],
+    ["startTime", "data-start-time"],
+    ["endTime", "data-end-time"],
+    ["timezone", "data-timezone"],
+  ];
 
-  if (!mainTag || !expectedAttribute.test(mainTag)) {
-    errors.push(`${fileLabel} 的 main 必須宣告 data-session-id="${sessionId}"`);
+  for (const [field, attribute] of attributes) {
+    const value = expected[field];
+    if (typeof value !== "string" || !value) {
+      continue;
+    }
+    const expectedAttribute = new RegExp(
+      `\\b${attribute}\\s*=\\s*(["'])${escapeRegularExpression(value)}\\1`,
+      "i",
+    );
+    if (!mainTag || !expectedAttribute.test(mainTag)) {
+      errors.push(`${fileLabel} 的 main 必須宣告 ${attribute}="${value}"`);
+    }
   }
 
   return errors;
@@ -712,6 +1079,7 @@ export async function validateSite(rootDirectory, options = {}) {
   const docsDirectory = path.join(rootDirectory, "docs");
   const catalogPath = path.join(docsDirectory, "data", "course-catalog.json");
   const availabilityPath = path.join(docsDirectory, "data", "availability.json");
+  const assessmentsPath = path.join(docsDirectory, "data", "assessments.json");
   const courseContentPaths = COURSE_CONTENT_SPECS.map((spec) =>
     path.join(docsDirectory, "data", "courses", `${spec.id}.json`),
   );
@@ -724,7 +1092,7 @@ export async function validateSite(rootDirectory, options = {}) {
   const requiredFiles = [
     catalogPath,
     availabilityPath,
-    instructorPromptsPath,
+    assessmentsPath,
     indexPath,
     ...courseContentPaths,
   ];
@@ -737,21 +1105,25 @@ export async function validateSite(rootDirectory, options = {}) {
   if (errors.length) {
     throw new SiteValidationError(errors);
   }
+  if (await fileExists(instructorPromptsPath)) {
+    errors.push(
+      "docs/data/instructor-prompts.json 是講師私密教材，不得存在於公開網站",
+    );
+  }
 
   let catalog;
   let availability;
+  let assessments;
   let courseContents;
-  let instructorPrompts;
   try {
     const loaded = await Promise.all([
       readJson(catalogPath),
       readJson(availabilityPath),
+      readJson(assessmentsPath),
       ...courseContentPaths.map((filePath) => readJson(filePath)),
-      readJson(instructorPromptsPath),
     ]);
-    [catalog, availability] = loaded;
-    courseContents = loaded.slice(2, 2 + COURSE_CONTENT_SPECS.length);
-    instructorPrompts = loaded.at(-1);
+    [catalog, availability, assessments] = loaded;
+    courseContents = loaded.slice(3, 3 + COURSE_CONTENT_SPECS.length);
   } catch (error) {
     throw new SiteValidationError([error.message]);
   }
@@ -764,11 +1136,52 @@ export async function validateSite(rootDirectory, options = {}) {
     options.expectedOpen ?? null,
   );
   errors.push(...availabilityResult.errors);
+  const assessmentsResult = validateAssessments(assessments);
+  errors.push(...assessmentsResult.errors);
   courseContents.forEach((course, index) => {
     errors.push(...validateCourseContent(course, COURSE_CONTENT_SPECS[index]).errors);
   });
-  const instructorPromptResult = validateInstructorPrompts(instructorPrompts);
-  errors.push(...instructorPromptResult.errors);
+
+  const caseDirectory = path.join(
+    docsDirectory,
+    "cases",
+    "expanded-cancer-screening",
+  );
+  const caseEntryPath = path.join(caseDirectory, "index.html");
+  let caseEntryHtml = "";
+  if (!(await fileExists(caseEntryPath))) {
+    errors.push(
+      "缺少學生操作資料包 docs/cases/expanded-cancer-screening/index.html",
+    );
+  } else {
+    caseEntryHtml = await fs.readFile(caseEntryPath, "utf8");
+  }
+  for (const course of courseContents) {
+    const casePack = isPlainObject(course.casePack) ? course.casePack : {};
+    const stageId = String(casePack.stageId || "");
+    if (
+      caseEntryHtml &&
+      stageId &&
+      !caseEntryHtml.includes(`id="${stageId}"`)
+    ) {
+      errors.push(`學生操作資料包缺少 #${stageId} 課程定位點`);
+    }
+    for (const fileName of Array.isArray(casePack.suggestedFiles)
+      ? casePack.suggestedFiles
+      : []) {
+      if (
+        typeof fileName !== "string" ||
+        !fileName ||
+        path.basename(fileName) !== fileName
+      ) {
+        errors.push(`${course.id}.casePack.suggestedFiles 含不安全檔名`);
+        continue;
+      }
+      if (!(await fileExists(path.join(caseDirectory, fileName)))) {
+        errors.push(`${course.id}.casePack 建議檔案不存在：${fileName}`);
+      }
+    }
+  }
 
   const repositoryFiles = await listRepositoryFiles(rootDirectory);
   for (const relativePath of repositoryFiles) {
@@ -778,6 +1191,17 @@ export async function validateSite(rootDirectory, options = {}) {
   }
 
   const docsFiles = repositoryFiles.filter((file) => file.startsWith("docs/"));
+  const privatePublicMarkers = [
+    "instructor-prompts.json",
+    "講師模式",
+    "data-instructor-only",
+    "speakerCue",
+    "speakerNote",
+    "feedbackPhrases",
+    "referenceMiniOutline",
+    "intentionalErrors",
+    "correctedTitle",
+  ];
 
   for (const sessionPage of catalogResult.sessionPages) {
     const expectedContentPath = `sessions/${sessionPage.id}/`;
@@ -795,7 +1219,7 @@ export async function validateSite(rootDirectory, options = {}) {
     }
     const sessionHtml = await fs.readFile(pagePath, "utf8");
     errors.push(
-      ...auditSessionPageIdentity(sessionHtml, sessionPage.id, expectedRelativePath),
+      ...auditSessionPageIdentity(sessionHtml, sessionPage, expectedRelativePath),
     );
   }
 
@@ -804,9 +1228,31 @@ export async function validateSite(rootDirectory, options = {}) {
       continue;
     }
     const text = await fs.readFile(path.join(rootDirectory, relativePath), "utf8");
+    if (
+      path.extname(relativePath).toLowerCase() === ".csv" &&
+      relativePath.startsWith("docs/cases/expanded-cancer-screening/")
+    ) {
+      const rows = text.trim().split(/\r?\n/);
+      if (
+        !rows[0]?.startsWith("data_status,") ||
+        rows.slice(1).some((row) => row && !row.startsWith("教學合成資料,"))
+      ) {
+        errors.push(
+          `${relativePath} 必須以 data_status 欄逐列標示為教學合成資料`,
+        );
+      }
+    }
     const forbidden = findForbiddenPhrases(text);
     if (forbidden.length) {
       errors.push(`${relativePath} 含已取消內容：${forbidden.join("、")}`);
+    }
+    const privateMarkers = privatePublicMarkers.filter((marker) =>
+      text.includes(marker),
+    );
+    if (privateMarkers.length) {
+      errors.push(
+        `${relativePath} 含講師私密內容標記：${privateMarkers.join("、")}`,
+      );
     }
   }
 
@@ -871,7 +1317,9 @@ export async function validateSite(rootDirectory, options = {}) {
     sessionCount: catalogResult.sessionIds.length,
     contentPageCount: catalogResult.sessionPages.length,
     courseContentCount: courseContents.length,
-    instructorPromptCount: instructorPromptResult.promptCount,
+    assessmentQuestionCount: assessmentsResult.questionCount,
+    satisfactionQuestionCount: assessmentsResult.satisfactionQuestionCount,
+    privateInstructorContentExcluded: true,
     openIds: [...availabilityResult.openIds].sort(),
     repositoryFileCount: repositoryFiles.length,
     checkedReferences,
@@ -892,6 +1340,11 @@ function isValidTime(value) {
   }
   const [hour, minute] = value.split(":").map(Number);
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+}
+
+function timeToMinutes(value) {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
 }
 
 function isLocalReference(reference) {

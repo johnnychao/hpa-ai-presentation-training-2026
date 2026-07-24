@@ -10,18 +10,15 @@
   const FIELD_LABELS = {
     action: "操作",
     actions: "操作",
-    answer: "參考答案",
     audience: "適用對象",
     boundary: "適用邊界",
     check: "完成檢查",
     completionScore: "完成分數",
     content: "內容",
     context: "情境",
-    correctedTitle: "修正後標題",
     coreMessage: "核心訊息",
     courseTotalPoints: "課程總分",
     criteria: "評量標準",
-    decisionSentence: "決策句",
     deliverable: "交付成果",
     deliverables: "交付成果",
     demo: "示範流程",
@@ -36,7 +33,6 @@
     evidence: "證據",
     evaluability: "可評估性",
     expectedOutput: "預期產出",
-    feedbackPhrases: "講評語句",
     fictionalEvidence: "虛構證據",
     fictionalOptions: "虛構選項",
     fileName: "檔名",
@@ -45,7 +41,6 @@
     goal: "目標",
     groupSize: "建議分組",
     humanCheck: "人工檢查",
-    intentionalErrors: "刻意錯誤",
     instruction: "操作說明",
     instructions: "操作說明",
     label: "標示",
@@ -75,8 +70,6 @@
     question: "題目",
     rationale: "理由",
     reason: "理由",
-    recommendation: "建議",
-    referenceMiniOutline: "參考迷你大綱",
     resourceNeed: "資源需求",
     returnConditions: "退回條件",
     returnIf: "退回條件",
@@ -94,8 +87,6 @@
     sourceCards: "來源卡",
     sourceChoice: "來源選擇",
     sourceId: "來源代碼",
-    speakerCue: "講者提示",
-    speakerNote: "講者提示",
     startMinute: "開始時間",
     startSpeed: "啟動速度",
     statement: "敘述",
@@ -114,16 +105,17 @@
   };
 
   const state = {
+    assessments: null,
+    assessmentRefreshers: [],
+    assessmentSubmissionOverrides: {},
+    assessmentTimer: null,
     course: null,
     courseId: main.dataset.courseId,
+    endTime: main.dataset.endTime,
     sessionId: main.dataset.sessionId,
-    instructorMode: false,
-    instructorPromptLibrary: {
-      title: "NotebookLM 講師簡報生成提示詞",
-      usageNote: "",
-      items: [],
-      error: "",
-    },
+    sessionDate: main.dataset.sessionDate,
+    startTime: main.dataset.startTime,
+    timezone: main.dataset.timezone || "Asia/Taipei",
     printDetails: [],
   };
 
@@ -760,6 +752,59 @@
     return section;
   }
 
+  function renderCasePack(course) {
+    const casePack = isObject(course.casePack) ? course.casePack : {};
+    const section = createSection(
+      "course-case-pack",
+      "Student case pack",
+      "學生操作資料包",
+      "依照本階段進度使用公開資料、範本與練習檔；答案與講師教材不會放在公開網站。",
+    );
+    const card = createElement("article", { className: "case-pack-card" });
+    card.append(
+      createElement("span", {
+        className: "fiction-badge",
+        text: "教學虛構",
+      }),
+      createElement("h3", {
+        text: firstText(casePack.title, "癌症篩檢服務改善案例"),
+      }),
+      createElement("p", {
+        className: "case-pack-notice",
+        text: firstText(
+          casePack.notice,
+          "全數為教學用聚合虛構資料，非國民健康署統計、非真實個案，不得對外引用。",
+        ),
+      }),
+    );
+    const summary = firstText(casePack.summary, casePack.description);
+    if (summary) {
+      card.append(createElement("p", { text: summary }));
+    }
+    const suggestedFiles = arrayFrom(casePack.suggestedFiles, [
+      "files",
+      "items",
+    ]);
+    if (suggestedFiles.length) {
+      const fileBlock = createElement("div", { className: "case-pack-files" });
+      fileBlock.append(createElement("strong", { text: "本階段建議使用" }));
+      appendTextList(fileBlock, suggestedFiles);
+      card.append(fileBlock);
+    }
+    const entryPath = firstText(casePack.entryPath);
+    if (entryPath) {
+      card.append(
+        createElement("a", {
+          className: "primary-link",
+          text: "開啟學生操作資料包",
+          attributes: { href: entryPath },
+        }),
+      );
+    }
+    section.append(card);
+    return section;
+  }
+
   function renderCaseStudy(course) {
     const caseStudy = course.caseStudy;
     const section = createSection(
@@ -863,18 +908,6 @@
           );
           card.append(row);
         });
-        const speakerCue = firstText(record.speakerCue, record.speakerNote);
-        if (speakerCue) {
-          const cue = createElement("div", {
-            className: "blueprint-field instructor-cue",
-            attributes: { "data-instructor-only": "true" },
-          });
-          cue.append(
-            createElement("strong", { text: "講者提示" }),
-            createElement("p", { text: speakerCue }),
-          );
-          card.append(cue);
-        }
         list.append(card);
       });
       details.append(summary, list);
@@ -1035,6 +1068,539 @@
     return section;
   }
 
+  function assessmentStorageKey(kind, type) {
+    return `hpa-course-assessment:${kind}:${state.sessionId}:${type}`;
+  }
+
+  function readStoredObject(key) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || "null");
+      return isObject(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStoredObject(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function removeStoredObject(key) {
+    try {
+      localStorage.removeItem(key);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function anonymousSessionId() {
+    const key = `hpa-course-assessment:anonymous-session-id:v1:${state.sessionId}`;
+    try {
+      const existing = localStorage.getItem(key);
+      if (existing) {
+        return existing;
+      }
+      const created =
+        typeof crypto?.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+      localStorage.setItem(key, created);
+      return created;
+    } catch {
+      return `anon-session-${Math.random().toString(36).slice(2, 12)}`;
+    }
+  }
+
+  function sessionTimestamp(time) {
+    const timestamp = Date.parse(`${state.sessionDate}T${time}:00+08:00`);
+    if (!Number.isFinite(timestamp)) {
+      throw new Error("場次日期或時間格式不正確。");
+    }
+    return timestamp;
+  }
+
+  function isLocalPreview() {
+    return ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  }
+
+  function currentAssessmentTime() {
+    if (isLocalPreview()) {
+      const override = new URLSearchParams(window.location.search).get(
+        "assessmentNow",
+      );
+      const timestamp = Date.parse(override || "");
+      if (Number.isFinite(timestamp)) {
+        return timestamp;
+      }
+    }
+    return Date.now();
+  }
+
+  function assessmentWindow(type, now = currentAssessmentTime()) {
+    const timing = state.assessments?.timing?.[type];
+    const start = sessionTimestamp(state.startTime);
+    const end = sessionTimestamp(state.endTime);
+    let opensAt;
+    let closesAt;
+
+    if (type === "pre") {
+      opensAt = start - Number(timing?.openMinutesBeforeStart || 30) * 60_000;
+      closesAt = start;
+    } else if (type === "post") {
+      opensAt = end - Number(timing?.openMinutesBeforeEnd || 10) * 60_000;
+      closesAt = end;
+    } else {
+      throw new Error(`未知評量類型：${type}`);
+    }
+
+    return {
+      status: now < opensAt ? "upcoming" : now >= closesAt ? "closed" : "open",
+      opensAt,
+      closesAt,
+    };
+  }
+
+  function formatAssessmentTime(timestamp) {
+    return new Intl.DateTimeFormat("zh-TW", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: state.timezone,
+    }).format(new Date(timestamp));
+  }
+
+  function readAssessmentDraft(type) {
+    return (
+      readStoredObject(assessmentStorageKey("draft", type)) || {
+        responses: {},
+        satisfaction: {},
+      }
+    );
+  }
+
+  function selectedAssessmentValues(form) {
+    const draft = { responses: {}, satisfaction: {} };
+    form.querySelectorAll('input[type="radio"]:checked').forEach((input) => {
+      const bucket =
+        input.dataset.responseKind === "satisfaction" ? "satisfaction" : "responses";
+      draft[bucket][input.dataset.questionId] = input.value;
+    });
+    return draft;
+  }
+
+  function renderChoiceFieldset({
+    item,
+    index,
+    type,
+    kind,
+    choices,
+    storedValue,
+  }) {
+    const fieldset = createElement("fieldset", {
+      className:
+        kind === "satisfaction"
+          ? "assessment-question satisfaction-question"
+          : "assessment-question",
+      attributes: { "data-question-id": item.id },
+    });
+    fieldset.append(
+      createElement("legend", {
+        text: `${kind === "satisfaction" ? `滿意度 ${index + 1}` : `第 ${index + 1} 題`}｜${item.stem}`,
+      }),
+    );
+    const list = createElement("div", { className: "assessment-options" });
+    choices.forEach((choice, choiceIndex) => {
+      const value =
+        kind === "satisfaction"
+          ? String(choice.value)
+          : String.fromCharCode(65 + choiceIndex);
+      const inputId = `${state.sessionId}-${type}-${safeToken(item.id, "question")}-${value}`;
+      const label = createElement("label", { className: "assessment-option" });
+      const input = createElement("input", {
+        attributes: {
+          id: inputId,
+          type: "radio",
+          name: `${state.sessionId}-${type}-${safeToken(item.id, "question")}`,
+          value,
+          required: "required",
+          "data-question-id": item.id,
+          "data-response-kind": kind,
+        },
+      });
+      input.checked = storedValue === value;
+      const optionText =
+        kind === "satisfaction"
+          ? `${choice.value}｜${choice.label}`
+          : `${value}｜${choice}`;
+      label.append(input, createElement("span", { text: optionText }));
+      list.append(label);
+    });
+    fieldset.append(list);
+    return fieldset;
+  }
+
+  function renderAssessmentForm(type, test, satisfaction, onSubmitted) {
+    const form = createElement("form", {
+      className: "scheduled-assessment-form",
+      attributes: { novalidate: "novalidate" },
+    });
+    const draft = readAssessmentDraft(type);
+    const questions = Array.isArray(test?.questions) ? test.questions : [];
+    const satisfactionQuestions =
+      type === "post" && satisfaction?.appliesTo === "post"
+        ? satisfaction.questions || []
+        : [];
+    const totalGroups = questions.length + satisfactionQuestions.length;
+
+    const quizHeading = createElement("div", { className: "assessment-form-heading" });
+    quizHeading.append(
+      createElement("h4", {
+        text: type === "pre" ? "課前測驗｜10 題" : "課後測驗｜10 題",
+      }),
+      createElement("p", {
+        text: "每題選擇一個答案；本頁不顯示分數或正解。",
+      }),
+    );
+    form.append(quizHeading);
+
+    questions.forEach((question, index) => {
+      form.append(
+        renderChoiceFieldset({
+          item: question,
+          index,
+          type,
+          kind: "responses",
+          choices: question.options || [],
+          storedValue: draft.responses?.[question.id],
+        }),
+      );
+    });
+
+    if (satisfactionQuestions.length) {
+      const surveyHeading = createElement("div", {
+        className: "assessment-form-heading satisfaction-heading",
+      });
+      surveyHeading.append(
+        createElement("p", { className: "section-kicker", text: "Course feedback" }),
+        createElement("h4", { text: "滿意度調查｜5 題" }),
+        createElement("p", {
+          text: "滿意度與本次後測一併送出，不另填第二份問卷。",
+        }),
+      );
+      form.append(surveyHeading);
+      satisfactionQuestions.forEach((question, index) => {
+        form.append(
+          renderChoiceFieldset({
+            item: question,
+            index,
+            type,
+            kind: "satisfaction",
+            choices: satisfaction.scale || [],
+            storedValue: draft.satisfaction?.[question.id],
+          }),
+        );
+      });
+    }
+
+    const actions = createElement("div", { className: "assessment-form-actions" });
+    const progress = createElement("p", {
+      className: "assessment-form-progress",
+      attributes: { role: "status", "aria-live": "polite" },
+    });
+    const submit = createElement("button", {
+      className: "assessment-submit-button",
+      text: type === "pre" ? "送出前測" : "送出後測與滿意度",
+      attributes: { type: "submit" },
+    });
+    actions.append(progress, submit);
+    form.append(actions);
+
+    const updateProgress = () => {
+      const selected = form.querySelectorAll('input[type="radio"]:checked').length;
+      progress.textContent = `已完成 ${selected} / ${totalGroups} 題`;
+    };
+    form.addEventListener("change", () => {
+      writeStoredObject(
+        assessmentStorageKey("draft", type),
+        selectedAssessmentValues(form),
+      );
+      progress.classList.remove("is-error");
+      updateProgress();
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (assessmentWindow(type).status !== "open") {
+        announce("作答時段已結束，未送出資料。");
+        onSubmitted();
+        return;
+      }
+
+      const selected = selectedAssessmentValues(form);
+      if (
+        Object.keys(selected.responses).length !== questions.length ||
+        Object.keys(selected.satisfaction).length !== satisfactionQuestions.length
+      ) {
+        const firstMissingFieldset = [...form.querySelectorAll("fieldset")].find(
+          (fieldset) =>
+            !fieldset.querySelector('input[type="radio"]:checked'),
+        );
+        firstMissingFieldset
+          ?.querySelector('input[type="radio"]')
+          ?.focus();
+        progress.textContent = `尚未完成全部 ${totalGroups} 題，請檢查未作答題目。`;
+        progress.classList.add("is-error");
+        return;
+      }
+
+      const endpoint = state.assessments?.submission?.[type];
+      const payload = {
+        schema: state.assessments?.submission?.payloadSchema,
+        questionVersion: state.assessments?.questionVersion,
+        assessmentType: type,
+        sessionId: state.sessionId,
+        courseId: state.courseId,
+        anonymousSessionId: anonymousSessionId(),
+        responses: questions.map((question) => ({
+          questionId: question.id,
+          selectedOption: selected.responses[question.id],
+        })),
+        satisfaction:
+          type === "post"
+            ? satisfactionQuestions.map((question) => ({
+                questionId: question.id,
+                rating: Number(selected.satisfaction[question.id]),
+              }))
+            : [],
+        previewMode: isLocalPreview(),
+        clientSubmittedAt: new Date().toISOString(),
+        scheduledSession: {
+          date: state.sessionDate,
+          startTime: state.startTime,
+          endTime: state.endTime,
+          timezone: state.timezone,
+        },
+      };
+      const body = new URLSearchParams();
+      body.set(endpoint.fieldName, JSON.stringify(payload));
+
+      submit.disabled = true;
+      submit.textContent = "正在送出…";
+      progress.classList.remove("is-error");
+      progress.textContent = "正送往 Google 表單，請勿關閉頁面。";
+      try {
+        await fetch(endpoint.action, {
+          method: "POST",
+          mode: "no-cors",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body,
+        });
+        const submissionMarker = {
+          requestSentAt: payload.clientSubmittedAt,
+          questionVersion: payload.questionVersion,
+        };
+        state.assessmentSubmissionOverrides[type] = submissionMarker;
+        writeStoredObject(
+          assessmentStorageKey("submitted", type),
+          submissionMarker,
+        );
+        announce(
+          type === "pre"
+            ? "前測送出請求已完成。"
+            : "後測與滿意度送出請求已完成。",
+        );
+        onSubmitted();
+      } catch {
+        submit.disabled = false;
+        submit.textContent = type === "pre" ? "重新送出前測" : "重新送出後測與滿意度";
+        progress.textContent = "目前無法送出；已保留本機作答，請確認網路後再試。";
+        progress.classList.add("is-error");
+      }
+    });
+
+    updateProgress();
+    return form;
+  }
+
+  function renderScheduledAssessmentCard(type, test, satisfaction) {
+    const isPre = type === "pre";
+    const card = createElement("article", {
+      className: "scheduled-assessment-card",
+      attributes: { "data-assessment-type": type },
+    });
+    const header = createElement("header", { className: "scheduled-assessment-header" });
+    header.append(
+      createElement("p", {
+        className: "section-kicker",
+        text: isPre ? "Before class" : "Before dismissal",
+      }),
+      createElement("h3", {
+        text: isPre ? "前測 Google 表單" : "後測 Google 表單＋滿意度",
+      }),
+      createElement("p", {
+        text: isPre
+          ? "上課前 30 分鐘內開放，共 10 題。"
+          : "下課前 10 分鐘開放，共 10 題後測與 5 題滿意度。",
+      }),
+    );
+    const statusBlock = createElement("div", {
+      className: "assessment-window-status",
+      attributes: { role: "status", "aria-live": "polite" },
+    });
+    const body = createElement("div", { className: "scheduled-assessment-body" });
+    card.append(header, statusBlock, body);
+
+    const refresh = () => {
+      const submitted = Object.hasOwn(
+        state.assessmentSubmissionOverrides,
+        type,
+      )
+        ? state.assessmentSubmissionOverrides[type]
+        : readStoredObject(assessmentStorageKey("submitted", type));
+      const windowState = assessmentWindow(type);
+      const renderKey = submitted
+        ? `submitted:${windowState.status}`
+        : windowState.status;
+      if (card.dataset.renderState === renderKey) {
+        return;
+      }
+      card.dataset.renderState = renderKey;
+      statusBlock.className = `assessment-window-status is-${
+        submitted ? "submitted" : windowState.status
+      }`;
+      statusBlock.replaceChildren();
+      body.replaceChildren();
+
+      if (submitted) {
+        statusBlock.append(
+          createElement("strong", { text: "送出請求已完成" }),
+          createElement("p", {
+            text:
+              type === "pre"
+                ? "本頁已將資料送往前測 Google 表單。"
+                : "本頁已將資料送往後測 Google 表單。",
+          }),
+        );
+        body.append(
+          createElement("p", {
+            className: "assessment-complete-note",
+            text:
+              "公開頁面無法直接讀取私人試算表確認入帳，請勿重複送出；如講師確認未收到，可在開放時段內重新送出。",
+          }),
+        );
+        if (windowState.status === "open") {
+          const retryButton = createElement("button", {
+            className: "assessment-retry-button",
+            text: "講師確認未收到時重新送出",
+            attributes: { type: "button" },
+          });
+          retryButton.addEventListener("click", () => {
+            state.assessmentSubmissionOverrides[type] = null;
+            removeStoredObject(assessmentStorageKey("submitted", type));
+            card.dataset.renderState = "";
+            refresh();
+            announce("已恢復原作答；重新送出可能產生重複資料。");
+          });
+          body.append(retryButton);
+        }
+        return;
+      }
+
+      const openTime = formatAssessmentTime(windowState.opensAt);
+      const closeTime = formatAssessmentTime(windowState.closesAt);
+      if (windowState.status === "open") {
+        statusBlock.append(
+          createElement("strong", { text: "現在可填寫" }),
+          createElement("p", { text: `開放至 ${closeTime}` }),
+        );
+        body.append(
+          renderAssessmentForm(type, test, satisfaction, () => {
+            card.dataset.renderState = "";
+            refresh();
+          }),
+        );
+        return;
+      }
+
+      const isUpcoming = windowState.status === "upcoming";
+      statusBlock.append(
+        createElement("strong", {
+          text: isUpcoming ? "尚未開放" : "本次填寫已截止",
+        }),
+        createElement("p", {
+          text: isUpcoming
+            ? `開放時間：${openTime}–${closeTime}`
+            : `本次開放時段：${openTime}–${closeTime}`,
+        }),
+      );
+      body.append(
+        createElement("p", {
+          className: "assessment-locked-note",
+          text: isUpcoming
+            ? "到開放時間後，本頁會自動顯示題目，不需要重新登入。"
+            : "如有特殊狀況，請直接向講師或承辦單位反映。",
+        }),
+      );
+    };
+
+    state.assessmentRefreshers.push(refresh);
+    refresh();
+    return card;
+  }
+
+  function renderScheduledAssessments() {
+    const courseAssessments = state.assessments?.courses?.[state.courseId];
+    if (!courseAssessments) {
+      throw new Error("找不到本階課程的前後測題目。");
+    }
+    const section = createSection(
+      "course-pre-post-tests",
+      "Timed assessment",
+      "前測、後測與滿意度",
+      "依場次時間自動開放；前測與後測使用兩份不同的 Google 表單。",
+    );
+    const privacy = createElement("aside", {
+      className: "assessment-privacy-note",
+      attributes: { role: "note" },
+    });
+    privacy.append(
+      createElement("strong", { text: "匿名作答與資料去向" }),
+      createElement("p", {
+        text: "只傳送場次、隨機匿名代碼、固定選項與送出時間至講師私人 Google Sheets；不收集姓名、Email、單位或自由文字，也不在公開網站保存正解。",
+      }),
+      createElement("p", {
+        text: "開放時段是瀏覽器介面控制，不是身分驗證或安全存取限制。",
+      }),
+    );
+    const grid = createElement("div", { className: "scheduled-assessment-grid" });
+    grid.append(
+      renderScheduledAssessmentCard(
+        "pre",
+        courseAssessments.pre,
+        state.assessments.satisfaction,
+      ),
+      renderScheduledAssessmentCard(
+        "post",
+        courseAssessments.post,
+        state.assessments.satisfaction,
+      ),
+    );
+    section.append(privacy, grid);
+    return section;
+  }
+
   function renderAssessment(course) {
     const section = createSection(
       "course-assessment",
@@ -1071,147 +1637,6 @@
     return section;
   }
 
-  function renderInstructorPromptLibrary() {
-    const library = state.instructorPromptLibrary;
-    const panel = createElement("section", {
-      className: "instructor-prompt-library",
-      attributes: { "aria-labelledby": "instructor-prompt-library-title" },
-    });
-    const heading = createElement("header", {
-      className: "instructor-prompt-library-heading",
-    });
-    heading.append(
-      createElement("p", {
-        className: "section-kicker",
-        text: "NotebookLM instructor kit",
-      }),
-      createElement("h3", {
-        text: firstText(
-          library.title,
-          "NotebookLM 講師簡報生成提示詞",
-        ),
-        attributes: { id: "instructor-prompt-library-title" },
-      }),
-    );
-    if (library.usageNote) {
-      heading.append(createElement("p", { text: library.usageNote }));
-    }
-    panel.append(heading);
-
-    if (library.error) {
-      panel.append(
-        createElement("p", {
-          className: "instructor-prompt-library-error",
-          text: library.error,
-          attributes: { role: "status" },
-        }),
-      );
-      return panel;
-    }
-
-    const grid = createElement("div", {
-      className: "prompt-grid instructor-prompt-grid",
-    });
-    library.items.forEach((item, index) => {
-      const record = isObject(item) ? item : { text: item };
-      const codeId = `instructor-prompt-${safeToken(
-        record.id,
-        String(index + 1),
-      )}-${index + 1}`;
-      const title = itemTitle(record, `講師提示詞 ${index + 1}`);
-      const card = createElement("article", {
-        className: "prompt-card instructor-prompt-card",
-      });
-      const cardHeader = createElement("header");
-      const titleWrap = createElement("div", { className: "prompt-title" });
-      titleWrap.append(
-        createElement("span", {
-          text: `${firstText(record.scope, "講師")} PROMPT ${String(
-            index + 1,
-          ).padStart(2, "0")}`,
-        }),
-        createElement("h4", { text: title }),
-      );
-      cardHeader.append(
-        titleWrap,
-        createElement("button", {
-          className: "copy-prompt-button",
-          text: "複製",
-          attributes: {
-            type: "button",
-            "data-copy-target": codeId,
-            "aria-label": `複製講師提示詞：${title}`,
-          },
-        }),
-      );
-      card.append(cardHeader);
-      const purpose = firstText(
-        record.purpose,
-        record.whenToUse,
-        record.description,
-      );
-      if (purpose) {
-        card.append(
-          createElement("p", {
-            className: "prompt-purpose",
-            text: purpose,
-          }),
-        );
-      }
-      const pre = createElement("pre");
-      pre.append(
-        createElement("code", {
-          text:
-            promptText(record) ||
-            "講師提示詞內容暫時無法顯示，請使用已確認的教學來源操作。",
-          attributes: { id: codeId },
-        }),
-      );
-      card.append(pre);
-      grid.append(card);
-    });
-    if (!grid.children.length) {
-      grid.append(
-        createElement("p", {
-          className: "course-fallback",
-          text: "本課的講師提示詞尚未提供，其他課程內容仍可正常使用。",
-        }),
-      );
-    }
-    panel.append(grid);
-    return panel;
-  }
-
-  function renderInstructor(course) {
-    const section = createSection(
-      "course-instructor",
-      "Instructor mode",
-      "講師模式",
-      "顯示帶領提示、講者備註與課堂觀察重點。",
-    );
-    section.classList.add("instructor-section");
-    section.dataset.instructorOnly = "true";
-    const items = arrayFrom(course.instructor, ["items", "notes", "tips"]);
-    const grid = createElement("div", { className: "instructor-grid" });
-    items.forEach((item, index) => {
-      const record =
-        isObject(item) && !itemTitle(item, "")
-          ? { title: "講師操作與回饋", ...item }
-          : item;
-      grid.append(genericCard(record, index, "instructor-card"));
-    });
-    if (!grid.children.length) {
-      grid.append(
-        createElement("p", {
-          className: "course-fallback",
-          text: "本課沒有額外講師備註。",
-        }),
-      );
-    }
-    section.append(grid, renderInstructorPromptLibrary());
-    return section;
-  }
-
   function safetyText(safety) {
     const items = arrayFrom(safety, ["items", "rules", "notes"]);
     const texts = [];
@@ -1244,36 +1669,15 @@
       text: "列印課程",
       attributes: { type: "button" },
     });
-    const instructorButton = createElement("button", {
-      className: "course-tool-button instructor-toggle",
-      text: "開啟講師模式",
-      attributes: {
-        type: "button",
-        "aria-pressed": "false",
-      },
-    });
     printButton.addEventListener("click", () => window.print());
-    instructorButton.addEventListener("click", () => {
-      setInstructorMode(!state.instructorMode, instructorButton);
-    });
     toolbar.append(
       createElement("p", {
         text: "完整課程已展開於本頁，可依導覽直接前往各單元。",
       }),
       createElement("div", { className: "course-tool-actions" }),
     );
-    toolbar.lastElementChild.append(printButton, instructorButton);
+    toolbar.lastElementChild.append(printButton);
     return toolbar;
-  }
-
-  function setInstructorMode(enabled, button) {
-    state.instructorMode = enabled;
-    document.body.classList.toggle("is-instructor-mode", enabled);
-    if (button) {
-      button.setAttribute("aria-pressed", String(enabled));
-      button.textContent = enabled ? "關閉講師模式" : "開啟講師模式";
-    }
-    announce(enabled ? "已開啟講師模式。" : "已關閉講師模式。");
   }
 
   function createNavigation(sections) {
@@ -1290,15 +1694,6 @@
         text: title,
         attributes: { href: `#${section.id}` },
       });
-      if (section.dataset.instructorOnly) {
-        link.dataset.instructorOnly = "true";
-        link.addEventListener("click", () => {
-          const toggle = document.querySelector(".instructor-toggle");
-          if (!state.instructorMode) {
-            setInstructorMode(true, toggle);
-          }
-        });
-      }
       const item = createElement("li");
       item.append(link);
       list.append(item);
@@ -1370,6 +1765,7 @@
 
   function renderCourse(course) {
     state.course = course;
+    state.assessmentRefreshers = [];
     const declaredId = firstText(course.id, course.meta?.id);
     if (declaredId && declaredId !== state.courseId) {
       throw new Error("課程資料與本頁識別碼不一致。");
@@ -1377,15 +1773,16 @@
 
     const sections = [
       renderOverview(course),
+      renderScheduledAssessments(),
       renderTimeline(course),
       renderWorkflow(course),
       renderPrompts(course),
       renderPractice(course),
+      renderCasePack(course),
       renderCaseStudy(course),
       renderBlueprint(course),
       renderChecklist(course),
       renderAssessment(course),
-      renderInstructor(course),
     ];
     const toolbar = createToolbar();
     const layout = createElement("div", { className: "full-course-layout" });
@@ -1409,6 +1806,13 @@
         copyPrompt(button.dataset.copyTarget, button);
       }
     });
+
+    if (state.assessmentTimer) {
+      window.clearInterval(state.assessmentTimer);
+    }
+    state.assessmentTimer = window.setInterval(() => {
+      state.assessmentRefreshers.forEach((refresh) => refresh());
+    }, 30_000);
   }
 
   function renderError(message) {
@@ -1431,82 +1835,49 @@
     root.setAttribute("aria-busy", "false");
   }
 
-  function normalizeInstructorPrompts(data) {
-    const common = Array.isArray(data?.common) ? data.common : [];
-    const courseItems = Array.isArray(data?.courses?.[state.courseId])
-      ? data.courses[state.courseId]
-      : [];
-    if (common.length !== 5 || courseItems.length !== 2) {
-      throw new Error("講師提示詞數量不完整。");
-    }
-    const items = [
-      ...courseItems.map((item) => ({ ...item, scope: "本階" })),
-      ...common.map((item) => ({ ...item, scope: "共用" })),
-    ];
-    if (
-      items.some(
-        (item) =>
-          !isObject(item) ||
-          !firstText(item.id) ||
-          !itemTitle(item, "") ||
-          !promptText(item),
-      )
-    ) {
-      throw new Error("講師提示詞格式不完整。");
-    }
-    return {
-      title: firstText(
-        data.title,
-        "NotebookLM 講師簡報生成提示詞",
-      ),
-      usageNote: firstText(data.usageNote),
-      items,
-      error: "",
-    };
-  }
-
   async function initialize() {
     const source = root.dataset.courseSrc;
+    const assessmentSource = root.dataset.assessmentSrc;
     if (
       !source ||
       !/^\.\.\/\.\.\/data\/courses\/ai-deck-[0-9]{2}\.json$/.test(source)
     ) {
       throw new Error("課程資料路徑不正確。");
     }
-    const instructorPromptRequest = fetch(
-      "../../data/instructor-prompts.json",
-      {
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      },
-    )
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`講師提示詞資料回應 ${response.status}`);
-        }
-        return normalizeInstructorPrompts(await response.json());
-      })
-      .catch(() => ({
-        title: "NotebookLM 講師簡報生成提示詞",
-        usageNote: "",
-        items: [],
-        error:
-          "講師提示詞暫時無法載入；完整課程與其他講師備註仍可正常使用。",
-      }));
-    const [response, instructorPromptLibrary] = await Promise.all([
-      fetch(source, {
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      }),
-      instructorPromptRequest,
-    ]);
-    if (!response.ok) {
-      throw new Error(`課程資料回應 ${response.status}`);
+    if (
+      !assessmentSource ||
+      assessmentSource !== "../../data/assessments.json"
+    ) {
+      throw new Error("評量資料路徑不正確。");
     }
-    const course = await response.json();
-    state.instructorPromptLibrary = instructorPromptLibrary;
+
+    const [courseResponse, assessmentResponse] = await Promise.all(
+      [source, assessmentSource].map((path) =>
+        fetch(path, {
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+        }),
+      ),
+    );
+    if (!courseResponse.ok) {
+      throw new Error(`課程資料回應 ${courseResponse.status}`);
+    }
+    if (!assessmentResponse.ok) {
+      throw new Error(`評量資料回應 ${assessmentResponse.status}`);
+    }
+    const [course, assessments] = await Promise.all([
+      courseResponse.json(),
+      assessmentResponse.json(),
+    ]);
+    state.assessments = assessments;
     renderCourse(course);
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      state.assessmentRefreshers.forEach((refresh) => refresh());
+    }
+  });
 
   window.addEventListener("beforeprint", () => {
     state.printDetails = [...document.querySelectorAll("details:not([open])")];

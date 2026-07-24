@@ -9,6 +9,7 @@
   },
   "scripts": {
     "generate": "node scripts/generate-session-pages.mjs",
+    "import:assessments": "node scripts/import-assessments.mjs",
     "serve": "node scripts/serve-local.mjs",
     "test": "node --test scripts/validate-site.test.mjs",
     "validate": "node scripts/validate-site.mjs",

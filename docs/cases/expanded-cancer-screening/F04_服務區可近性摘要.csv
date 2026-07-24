@@ -1,0 +1,6 @@
+data_status,region_code,region_type,eligible_estimate_n,facilities_n,median_travel_minutes,evening_service_flag,digital_reach_pct,missing_pct,limitation
+教學合成資料,示範區A,都會型服務區（虛構）,26900,18,16,是,84.0,0.9,聚合估算不能解釋個人未篩檢原因
+教學合成資料,示範區B,近郊型服務區（虛構）,23400,12,24,部分,72.0,1.7,聚合估算不能解釋個人未篩檢原因
+教學合成資料,示範區C,鄉鎮型服務區（虛構）,21200,7,39,否,61.0,3.4,聚合估算不能解釋個人未篩檢原因
+教學合成資料,示範區D,離島型服務區（虛構）,22300,5,52,部分,49.0,6.4,聚合估算不能解釋個人未篩檢原因
+

@@ -1,0 +1,4 @@
+data_status,option_id,scope,duration_weeks,facilities_n,fte_low,fte_high,cost_ntd_low,cost_ntd_high,lead_weeks,evaluation_design,reversibility,exclusions,approval_status
+教學合成資料,A,維持現有流程並補強資料定義,12,8,0.5,1.0,600000,1000000,2,例行監測,高,不含系統開發與媒體採購,未核定之教學情境
+教學合成資料,B,兩個低完成率示範服務區定向試辦,12,8,3.0,4.0,3800000,5200000,5,分階段前後比較並預先定義指標,中高,不含正式資訊系統串接與長期人事,未核定之教學情境
+教學合成資料,C,四個示範服務區較大範圍推動,24,24,10.0,14.0,16000000,24000000,12,分批導入與持續監測,中低,不含全國擴充與多年維運,未核定之教學情境
