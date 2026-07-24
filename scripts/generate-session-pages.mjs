@@ -108,7 +108,7 @@ function renderPage({ cohort, session, course, courseId, timezone }) {
     <title>${escapeHtml(cohortLabel)}${escapeHtml(sessionLabel)}｜${escapeHtml(title)}</title>
     <link rel="icon" href="../../assets/images/hpa-favicon.ico">
     <link rel="stylesheet" href="../../assets/styles.css">
-    <script src="../../assets/course-page.js" defer></script>
+    <script src="../../assets/course-page.js?v=20260724-pre-window-v2" defer></script>
   </head>
   <body class="session-page course-content-page">
     <a class="skip-link" href="#main-content">跳至主要內容</a>

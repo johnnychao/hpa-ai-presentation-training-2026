@@ -349,9 +349,12 @@ export function assessmentWindowStatus({
 
   const open =
     type === "pre"
-      ? new Date(start.getTime() - 30 * 60 * 1000)
+      ? new Date(start.getTime())
       : new Date(end.getTime() - 10 * 60 * 1000);
-  const close = type === "pre" ? start : end;
+  const close =
+    type === "pre"
+      ? new Date(start.getTime() + 30 * 60 * 1000)
+      : end;
   const currentTime = current.getTime();
   const status =
     currentTime < open.getTime()
@@ -474,11 +477,11 @@ export function validateAssessments(assessments) {
   const postTiming = assessments?.timing?.post;
   if (
     !isPlainObject(preTiming) ||
-    preTiming.openMinutesBeforeStart !== 30 ||
-    preTiming.closeAt !== "start"
+    preTiming.openAt !== "start" ||
+    preTiming.openDurationMinutes !== 30
   ) {
     errors.push(
-      'assessments.timing.pre 必須設定 openMinutesBeforeStart=30、closeAt="start"',
+      'assessments.timing.pre 必須設定 openAt="start"、openDurationMinutes=30',
     );
   }
   if (

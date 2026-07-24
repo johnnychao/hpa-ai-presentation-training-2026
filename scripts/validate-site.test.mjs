@@ -68,8 +68,8 @@ function fixtureAssessments() {
     timezone: "Asia/Taipei",
     timing: {
       pre: {
-        openMinutesBeforeStart: 30,
-        closeAt: "start",
+        openAt: "start",
+        openDurationMinutes: 30,
       },
       post: {
         openMinutesBeforeEnd: 10,
@@ -199,7 +199,7 @@ test("assessment windows use Taipei time and half-open boundaries", () => {
     assessmentWindowStatus({
       ...session,
       type: "pre",
-      now: "2026-07-24T09:29:59+08:00",
+      now: "2026-07-24T09:59:59+08:00",
     }).status,
     "upcoming",
   );
@@ -207,7 +207,7 @@ test("assessment windows use Taipei time and half-open boundaries", () => {
     assessmentWindowStatus({
       ...session,
       type: "pre",
-      now: "2026-07-24T09:30:00+08:00",
+      now: "2026-07-24T10:00:00+08:00",
     }).status,
     "open",
   );
@@ -215,7 +215,15 @@ test("assessment windows use Taipei time and half-open boundaries", () => {
     assessmentWindowStatus({
       ...session,
       type: "pre",
-      now: "2026-07-24T10:00:00+08:00",
+      now: "2026-07-24T10:29:59+08:00",
+    }).status,
+    "open",
+  );
+  assert.equal(
+    assessmentWindowStatus({
+      ...session,
+      type: "pre",
+      now: "2026-07-24T10:30:00+08:00",
     }).status,
     "closed",
   );

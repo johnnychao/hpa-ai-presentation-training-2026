@@ -1150,8 +1150,9 @@
     let closesAt;
 
     if (type === "pre") {
-      opensAt = start - Number(timing?.openMinutesBeforeStart || 30) * 60_000;
-      closesAt = start;
+      opensAt = start;
+      closesAt =
+        start + Number(timing?.openDurationMinutes || 30) * 60_000;
     } else if (type === "post") {
       opensAt = end - Number(timing?.openMinutesBeforeEnd || 10) * 60_000;
       closesAt = end;
@@ -1444,14 +1445,14 @@
     header.append(
       createElement("p", {
         className: "section-kicker",
-        text: isPre ? "Before class" : "Before dismissal",
+        text: isPre ? "At class start" : "Before dismissal",
       }),
       createElement("h3", {
         text: isPre ? "前測 Google 表單" : "後測 Google 表單＋滿意度",
       }),
       createElement("p", {
         text: isPre
-          ? "上課前 30 分鐘內開放，共 10 題。"
+          ? "開課當下至開課後 30 分鐘內開放，共 10 題。"
           : "下課前 10 分鐘開放，共 10 題後測與 5 題滿意度。",
       }),
     );
