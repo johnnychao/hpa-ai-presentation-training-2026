@@ -110,8 +110,8 @@ async function main() {
     ),
     timing: {
       pre: {
-        openMinutesBeforeStart: 30,
-        closeAt: "start",
+        openAt: "start",
+        openDurationMinutes: 30,
       },
       post: {
         openMinutesBeforeEnd: 10,
